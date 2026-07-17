@@ -2,6 +2,7 @@ import {
   createWorld,
   computeRoute,
   addRoute,
+  tick,
   closeLane,
   openLane,
   setIncident as engineSetIncident,
@@ -158,4 +159,90 @@ export function sampleStats(world: World): Stats {
     avgTravelTime: m.completedTrips ? m.totalTravelTime / m.completedTrips : 0,
     time: world.time,
   };
+}
+
+export const EXPERIMENT_DURATIONS = [300, 600, 1500]; // ticks: 1 / 2 / 5 sim-minutes
+
+export interface ExperimentResult {
+  readonly baseline: Stats; // clean network, same demand
+  readonly intervention: Stats; // demand + the staged changes
+  readonly durationTicks: number;
+  readonly changes: string[]; // what B differs by
+}
+
+interface ScenarioConfig {
+  rates: number[];
+  allowed: Set<number>[];
+  laneClosed: Uint8Array;
+  incidentAt: Float32Array;
+  rank: Int32Array;
+  signals: boolean[];
+  closed: number;
+  incidents: number;
+  signalsOn: number;
+  priorityFlips: number;
+}
+
+function captureConfig(scene: Scene): ScenarioConfig {
+  const c = scene.world.control;
+  const conns = scene.world.graph.connections;
+  let priorityFlips = 0;
+  for (let i = 0; i < c.rank.length; i++) if (c.rank[i] !== conns[i].rank) priorityFlips += 1;
+  let incidents = 0;
+  for (let i = 0; i < c.incidentAt.length; i++) if (c.incidentAt[i] < Infinity) incidents += 1;
+  let closed = 0;
+  for (let i = 0; i < c.laneClosed.length; i++) closed += c.laneClosed[i];
+  return {
+    rates: scene.sources.map((s) => s.rate),
+    allowed: scene.sources.map((s) => new Set(s.allowed)),
+    laneClosed: c.laneClosed.slice(),
+    incidentAt: c.incidentAt.slice(),
+    rank: c.rank.slice(),
+    signals: scene.signals.map((s) => s?.enabled === true),
+    closed,
+    incidents,
+    signalsOn: scene.signals.reduce((n, s) => n + (s?.enabled ? 1 : 0), 0),
+    priorityFlips,
+  };
+}
+
+// Rebuild a config on a fresh scene. Demand is applied to both A and B; the staged interventions
+// (closures, incidents, priority, signals) only to B — so A and B differ by exactly the intervention.
+function applyConfig(scene: Scene, cfg: ScenarioConfig, withIntervention: boolean): void {
+  scene.sources.forEach((s, i) => {
+    setSourceRate(scene, s, cfg.rates[i]);
+    s.allowed = new Set(cfg.allowed[i]);
+  });
+  if (withIntervention) {
+    scene.world.control.laneClosed.set(cfg.laneClosed);
+    scene.world.control.incidentAt.set(cfg.incidentAt);
+    scene.world.control.rank.set(cfg.rank);
+    cfg.signals.forEach((on, j) => {
+      if (on) toggleSignal(scene, j);
+    });
+  }
+  applyRoutes(scene);
+}
+
+// A controlled A/B: run the baseline and the intervention on two freshly-seeded worlds (createScene
+// uses a fixed seed) for the SAME number of ticks — so the delta is the intervention's effect, not
+// elapsed time or noise. Pure and headless; no rendering.
+export function runExperiment(scene: Scene, durationTicks: number): ExperimentResult {
+  const cfg = captureConfig(scene);
+
+  const a = createScene(0);
+  applyConfig(a, cfg, false);
+  for (let n = 0; n < durationTicks; n++) tick(a.world);
+
+  const b = createScene(0);
+  applyConfig(b, cfg, true);
+  for (let n = 0; n < durationTicks; n++) tick(b.world);
+
+  const changes: string[] = [];
+  if (cfg.closed) changes.push(`${cfg.closed} road${cfg.closed > 1 ? 's' : ''} closed`);
+  if (cfg.incidents) changes.push(`${cfg.incidents} incident${cfg.incidents > 1 ? 's' : ''}`);
+  if (cfg.signalsOn) changes.push(`${cfg.signalsOn} signalized`);
+  if (cfg.priorityFlips) changes.push('priority changed');
+
+  return { baseline: sampleStats(a.world), intervention: sampleStats(b.world), durationTicks, changes };
 }

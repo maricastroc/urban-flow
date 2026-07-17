@@ -326,3 +326,31 @@ glow drowned the cars); the flow field is a faint streak, never a bright dot (wh
 the auto-fit camera keeps elements legible. Engine/behaviour is untouched — only the scene's size.
 
 **Deferred (a new interaction, out of this scope):** selecting a *car* to trace its Dijkstra route.
+
+## 19. Controlled A/B experiments + fast-forward (Etapa 11)
+
+The A/B compare was an ad-hoc pair of snapshots of one evolving live run — so its deltas mixed the
+intervention with elapsed time and noise. Etapa 11 turns it into a **controlled experiment** that
+cashes in the engine's determinism.
+
+**`runExperiment(scene, durationTicks)`** (`render/scene.ts`) is pure and headless:
+1. `captureConfig` snapshots the live scene — per-entry demand (rates + allowed destinations) and the
+   staged intervention (closures, incidents, priority ranks, signals) — plus counts for a description.
+2. It builds **two fresh worlds with the same fixed seed** (`createScene`). `applyConfig` applies the
+   demand to *both*, but the intervention only to **B**. So A (baseline) and B differ by exactly the
+   change.
+3. Each world is ticked headlessly (no rendering) for the same `durationTicks`, then `sampleStats`
+   reads each. The returned deltas (trips, avg speed, avg trip time) are attributable to the change
+   alone. Because arrivals are seeded identically, A and B are a true controlled pair — and with no
+   intervention staged, B is bit-for-bit equal to A (unit-tested).
+
+Running headless also means the experiment works even when the live RAF loop is throttled (e.g. a
+background tab): the result is computed synchronously, independent of the animation.
+
+**Fast-forward** (`SimulationCanvas`) is the same "tick without rendering" primitive on the *live*
+world — a `+60s` control that runs 300 ticks, then resyncs the interpolation buffers and the flow
+window so the animation resumes cleanly. It skips the wait for the network to fill or congest.
+
+The UI was also refactored this etapa: the 1072-line `SimulationCanvas.tsx` split into
+`components/sim/*` (TopBar, ControlDock, Coach, Inspector, Experiment, shared `ui`/`icons`/`types`),
+and the thermal palette moved to `render/thermal.ts`.

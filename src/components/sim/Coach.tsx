@@ -1,9 +1,8 @@
 import { IconClose } from './icons';
 
 const COACH_STEPS = [
-  { title: 'Capture the baseline', body: 'Snapshot the free-flowing network — your control group.' },
-  { title: 'Disrupt the network', body: 'Click a road on the map, then close it or add an incident.' },
-  { title: 'Watch it settle, capture B', body: 'Let queues build, then snapshot the result.' },
+  { title: 'Stage an intervention', body: 'Click a road to close it, or a junction to add signals or flip priority.' },
+  { title: 'Run the controlled A/B', body: 'It re-runs baseline vs. your change from the same seed — so the delta is your change.' },
 ];
 
 export function Coach({ step, onDismiss }: { step: number; onDismiss: () => void }) {

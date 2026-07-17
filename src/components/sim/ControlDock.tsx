@@ -1,5 +1,5 @@
 import { unitsToRate } from './types';
-import { IconPause, IconPlay, IconReset } from './icons';
+import { IconPause, IconPlay, IconReset, IconFastForward } from './icons';
 
 export function ControlDock({
   playing,
@@ -9,6 +9,7 @@ export function ControlDock({
   demand,
   onDemand,
   onReset,
+  onFastForward,
 }: {
   playing: boolean;
   onTogglePlay: () => void;
@@ -17,6 +18,7 @@ export function ControlDock({
   demand: number;
   onDemand: (d: number) => void;
   onReset: () => void;
+  onFastForward: () => void;
 }) {
   const speeds = [1, 2, 4];
   const idx = speeds.indexOf(speed);
@@ -72,6 +74,14 @@ export function ControlDock({
 
         <div className="mx-0.5 h-7 w-px bg-[var(--border)] sm:mx-1" />
 
+        <button
+          onClick={onFastForward}
+          aria-label="Skip ahead 60 seconds"
+          title="Skip ahead 60s"
+          className="grid h-9 w-9 place-items-center rounded-xl text-[var(--text-2)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-1)]"
+        >
+          <IconFastForward />
+        </button>
         <button
           onClick={onReset}
           aria-label="Reset"

@@ -1,7 +1,7 @@
 # Urban Flow — Progress
 
 Built incrementally in small, tested steps ("Etapas"). See `DESIGN.md` for the architecture.
-Status: **10 etapas done (8 engine/render + 2 visual passes), 51 vitest tests passing, typecheck + lint clean.**
+Status: **11 etapas done, 54 vitest tests passing, typecheck + lint clean.**
 
 ## Done
 
@@ -17,6 +17,7 @@ Status: **10 etapas done (8 engine/render + 2 visual passes), 51 vitest tests pa
 | 8 — Scenario control | Live experimentation overlay (`control.ts` §16): close/reopen roads (reroute new traffic), incidents (mid-lane block), per-entry demand + destinations, priority flips, traffic signals (2-phase, FASE S), and an A/B throughput compare. Interactive canvas (click a road/entry/junction → contextual inspector) with closed/incident/signal/priority overlays. Grid now emits `Junction`s + node ids. +7 engine tests. |
 | 9 — Experience redesign | "Mission-control" UI (§17): map-hero full-bleed layout, live top-bar HUD (tweened numerals), a guided coach (baseline → disrupt → compare), a progressive inspector (empty legend → road → junction with live stats), an A/B panel reframed as before → after → impact with semantic deltas, floating instrument dock, and a depth-cued canvas (cased roads, live congestion tint, animated selection). Design tokens + motion in `globals.css`. No engine/API change. |
 | 10 — Living mesh | Canvas-only pass (§18): one thermal colour language across cars/roads/junctions/flow, an always-on downstream flow field (direction without cars), roads that light + halo with congestion, junction nodes that breathe with activity and warm with queues, car motion trails, a spotlight focus mode (dims the rest, keeps the target + its topology lit), and a 5×5 mesh. Pure `renderer.ts` (+ `GRID`); no engine/data/interaction change, 51 tests untouched. |
+| 11 — Controlled A/B + fast-forward | The A/B panel became a **controlled experiment** (`runExperiment`, §19): baseline vs. the staged intervention, both run headless on two freshly-seeded worlds for the same duration, so the delta is the intervention's effect — not time or noise. Deterministic and tested. A headless **fast-forward** (+60s) skips the wait for the network to fill. Also split the 1072-line `SimulationCanvas.tsx` into `components/sim/*` and extracted `render/thermal.ts`. +3 tests. |
 
 ## Key decisions (rationale)
 
@@ -54,6 +55,11 @@ Status: **10 etapas done (8 engine/render + 2 visual passes), 51 vitest tests pa
   *hue* (bloom cut), the flow field is a faint streak (never a dot), and each car is lifted to a top
   luminance tier — a near-white-nosed capsule dark-separated from the road, so agents stay pickable
   over any background at 20+ cars without being enlarged.
+- **Controlled A/B is the payoff of determinism (Etapa 11)** — `runExperiment` builds two fresh,
+  same-seed worlds, applies the demand config to both but the intervention only to B, and ticks each
+  headlessly for the same number of ticks. The delta is attributable to the change alone (not elapsed
+  time or noise). Pure and headless, so it's unit-testable *and* it runs even when the live RAF loop
+  is throttled. The `pushBack` fix in `laneList.ts` must stay — see the note there.
 
 ## Quirks / gotchas
 
@@ -83,10 +89,13 @@ npm run dev -- --port 3477   # dev server (open http://localhost:3477)
   eventually a WASM sim core. This is the performance story for the portfolio.
 - **Lane changing (MOBIL)** + multiple lanes per direction (breaks the no-overtaking invariant —
   the per-lane list would need per-lane insertion/removal mid-lane).
-- **Select a car → trace its Dijkstra route** on the map (needs a new pick interaction; deferred
-  from Etapa 10's visualization-only scope).
-- **Observability** — a throughput time-series next to the A/B compare, camera pan/zoom, a "day"
-  demand curve. (Per-lane congestion is now a live thermal field on the mesh.)
+- **Select a car → trace its Dijkstra route** on the map (needs a new pick interaction).
+- **Experiment presets** — one-click scenarios ("rush hour", "close the artery", "signalize the
+  centre") that stage a config for the controlled A/B; cheap, great for onboarding/demo.
+- **Metrics time-series** — a rolling throughput/speed sparkline in the HUD, so the live network's
+  dynamics read over time (complements the controlled A/B). Per-lane congestion is already a live tint.
+- **Shareable URL** — serialize the scenario overlay + seed into the URL to share a specific run
+  (most useful once deployed).
 - **Onboarding depth** — spotlight the exact road/button the coach references; persist "tour done".
 
 ## Working rule

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tick } from '@/engine';
-import { createScene, setDemandRate, sampleStats, type Scene, type Stats } from '@/render/scene';
+import { createScene, setDemandRate, sampleStats, runExperiment, type Scene, type ExperimentResult } from '@/render/scene';
 import { fitCamera, project, unproject, nearestLane } from '@/render/geometry';
 import { drawScene, type RenderCar, type RenderOverlay } from '@/render/renderer';
 import {
@@ -59,8 +59,9 @@ export function SimulationCanvas() {
   const [selStats, setSelStats] = useState<SelStats | null>(null);
   const [, forceRender] = useState(0);
   const bump = useCallback(() => forceRender((n) => n + 1), []);
-  const [snapA, setSnapA] = useState<Stats | null>(null);
-  const [snapB, setSnapB] = useState<Stats | null>(null);
+  const [expResult, setExpResult] = useState<ExperimentResult | null>(null);
+  const [expRunning, setExpRunning] = useState(false);
+  const [expDuration, setExpDuration] = useState(600);
   const [coachDismissed, setCoachDismissed] = useState(false);
 
   useEffect(() => void (playingRef.current = playing), [playing]);
@@ -100,9 +101,28 @@ export function SimulationCanvas() {
     setSceneState(createScene(unitsToRate(demand)));
     setSel(NONE_SEL);
     setSelStats(null);
-    setSnapA(null);
-    setSnapB(null);
+    setExpResult(null);
   }, [demand]);
+
+  const runExp = useCallback(() => {
+    setExpRunning(true);
+    window.setTimeout(() => {
+      setExpResult(runExperiment(sceneRef.current, expDuration));
+      setExpRunning(false);
+    }, 30);
+  }, [expDuration]);
+
+  // Fast-forward the live sim by 60s of sim time, headless; then resync interpolation.
+  const fastForward = useCallback(() => {
+    const world = sceneRef.current.world;
+    for (let i = 0; i < 300; i++) tick(world);
+    prevSRef.current.set(world.agents.s);
+    prevActiveRef.current.set(world.agents.active);
+    prevLaneRef.current.set(world.agents.lane);
+    accRef.current = 0;
+    lastTsRef.current = 0;
+    flowRef.current = { t: world.time, trips: world.metrics.completedTrips, val: 0 };
+  }, []);
 
   const hitTest = useCallback((clientX: number, clientY: number): Selection => {
     const scene = sceneRef.current;
@@ -248,13 +268,8 @@ export function SimulationCanvas() {
     [scene, sinkLabels],
   );
 
-  const capture = (slot: 'A' | 'B') => {
-    const st = sampleStats(sceneRef.current.world);
-    if (slot === 'A') setSnapA(st);
-    else setSnapB(st);
-  };
-
-  const coachStep = !snapA ? 0 : !scenarioChanged(scene) ? 1 : !snapB ? 2 : 3;
+  const changed = scenarioChanged(scene);
+  const coachStep = !changed ? 0 : !expResult ? 1 : 2;
 
   return (
     <div className="flex h-dvh flex-col bg-[var(--bg)] text-[var(--text-1)]">
@@ -278,19 +293,22 @@ export function SimulationCanvas() {
             demand={demand}
             onDemand={setDemand}
             onReset={reset}
+            onFastForward={fastForward}
           />
 
-          {!coachDismissed && coachStep < 3 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
+          {!coachDismissed && coachStep < 2 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
         </div>
 
         <aside className="thin-scroll flex w-full shrink-0 flex-col gap-3 overflow-y-auto border-t border-[var(--border)] p-3 lg:w-[368px] lg:border-l lg:border-t-0">
           <Inspector scene={scene} sel={sel} stats={selStats} bump={bump} onClear={() => select(NONE_SEL)} sinkLabelOf={sinkLabelOf} />
           <Experiment
-            snapA={snapA}
-            snapB={snapB}
-            onCapture={capture}
-            highlightA={!coachDismissed && coachStep === 0}
-            highlightB={!coachDismissed && coachStep === 2}
+            result={expResult}
+            running={expRunning}
+            duration={expDuration}
+            onDuration={setExpDuration}
+            onRun={runExp}
+            hasIntervention={changed}
+            highlight={!coachDismissed && coachStep === 1}
           />
         </aside>
       </div>

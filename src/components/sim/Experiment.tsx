@@ -1,52 +1,100 @@
-import type { Stats } from '@/render/scene';
+import type { Stats, ExperimentResult } from '@/render/scene';
+import { EXPERIMENT_DURATIONS } from '@/render/scene';
 import { CARD } from './ui';
 import { IconArrow, IconFlask } from './icons';
 
 const METRICS: { label: string; get: (s: Stats) => number; fmt: (n: number) => string; better: 'up' | 'down' }[] = [
-  { label: 'Throughput', get: (s) => (s.time ? (s.completedTrips / s.time) * 60 : 0), fmt: (n) => `${n.toFixed(1)}/min`, better: 'up' },
+  { label: 'Trips completed', get: (s) => s.completedTrips, fmt: (n) => String(Math.round(n)), better: 'up' },
   { label: 'Avg speed', get: (s) => s.avgSpeedKmh, fmt: (n) => `${Math.round(n)} km/h`, better: 'up' },
   { label: 'Avg trip time', get: (s) => s.avgTravelTime, fmt: (n) => (n ? `${Math.round(n)} s` : '—'), better: 'down' },
 ];
 
+const mins = (ticks: number) => `${Math.round(ticks / 300)}m`;
+
 export function Experiment({
-  snapA,
-  snapB,
-  onCapture,
-  highlightA,
-  highlightB,
+  result,
+  running,
+  duration,
+  onDuration,
+  onRun,
+  hasIntervention,
+  highlight,
 }: {
-  snapA: Stats | null;
-  snapB: Stats | null;
-  onCapture: (slot: 'A' | 'B') => void;
-  highlightA: boolean;
-  highlightB: boolean;
+  result: ExperimentResult | null;
+  running: boolean;
+  duration: number;
+  onDuration: (ticks: number) => void;
+  onRun: () => void;
+  hasIntervention: boolean;
+  highlight: boolean;
 }) {
   return (
     <section className={`${CARD} p-4`}>
       <div className="mb-3 flex items-center gap-2">
         <IconFlask />
-        <div className="eyebrow">Experiment · A/B</div>
+        <div className="eyebrow">Controlled experiment · A/B</div>
       </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-2">
-        <CaptureButton label="A" sub="Before" filled={!!snapA} highlight={highlightA} onClick={() => onCapture('A')} />
-        <CaptureButton label="B" sub="After" filled={!!snapB} highlight={highlightB} onClick={() => onCapture('B')} />
+      <div className="mb-2 flex rounded-lg bg-[var(--surface-3)] p-0.5">
+        {EXPERIMENT_DURATIONS.map((t) => (
+          <button
+            key={t}
+            onClick={() => onDuration(t)}
+            className={`tnum flex-1 rounded-md py-1 text-[11px] font-semibold transition-colors ${
+              duration === t
+                ? 'bg-[var(--surface-1)] text-[var(--text-1)] ring-1 ring-[var(--border)]'
+                : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
+            }`}
+          >
+            {mins(t)}
+          </button>
+        ))}
       </div>
 
-      {snapA && snapB ? (
-        <div className="flex flex-col gap-1">
-          {METRICS.map((m) => {
-            const a = m.get(snapA);
-            const b = m.get(snapB);
-            return <ImpactRow key={m.label} label={m.label} a={m.fmt(a)} b={m.fmt(b)} delta={b - a} better={m.better} rel={a ? (b - a) / Math.abs(a) : 0} />;
-          })}
-        </div>
-      ) : (
-        <p className="text-[12px] leading-relaxed text-[var(--text-3)]">
-          {snapA
-            ? 'Baseline captured. Change the network, let it settle, then capture B.'
-            : 'Capture a baseline (A), change the scenario, then capture the result (B) to measure the impact.'}
+      <button
+        onClick={onRun}
+        disabled={running || !hasIntervention}
+        className={`w-full rounded-lg px-3 py-2 text-[13px] font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+          running ? 'bg-[var(--surface-2)] text-[var(--text-2)]' : 'bg-[var(--accent)] text-white hover:brightness-110'
+        } ${highlight ? 'hint-ring' : ''}`}
+      >
+        {running ? 'Running…' : result ? 'Run again' : 'Run experiment'}
+      </button>
+
+      {!hasIntervention && !result && (
+        <p className="mt-3 text-[12px] leading-relaxed text-[var(--text-3)]">
+          Stage a change first — close a road, add a signal, or flip priority — then run it. Baseline
+          vs. your change, from the <strong className="text-[var(--text-2)]">same seed</strong> for the same {mins(duration)}.
         </p>
+      )}
+
+      {result && (
+        <div className="mt-3">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="eyebrow">Baseline → change</span>
+            {result.changes.map((c) => (
+              <span
+                key={c}
+                className="tnum rounded-md bg-[var(--surface-3)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-2)]"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+          <div className="flex flex-col gap-1">
+            {METRICS.map((m) => {
+              const a = m.get(result.baseline);
+              const b = m.get(result.intervention);
+              return (
+                <ImpactRow key={m.label} label={m.label} a={m.fmt(a)} b={m.fmt(b)} delta={b - a} better={m.better} rel={a ? (b - a) / Math.abs(a) : 0} />
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-[var(--text-3)]">
+            Both ran from the same seed for {mins(result.durationTicks)} — the delta is your change, not
+            time or noise.
+          </p>
+        </div>
       )}
     </section>
   );
@@ -87,44 +135,5 @@ function ImpactRow({
         <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.abs(pct) * 100}%`, marginLeft: pct < 0 ? `${(1 - Math.abs(pct)) * 100}%` : 0, background: tone }} />
       </div>
     </div>
-  );
-}
-
-function CaptureButton({
-  label,
-  sub,
-  filled,
-  highlight,
-  onClick,
-}: {
-  label: string;
-  sub: string;
-  filled: boolean;
-  highlight: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`group relative flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all duration-150 ${
-        filled
-          ? 'border-[var(--accent)]/50 bg-[var(--accent-soft)]'
-          : 'border-[var(--border)] bg-[var(--surface-2)] hover:bg-[var(--surface-3)]'
-      } ${highlight ? 'hint-ring' : ''}`}
-    >
-      <div>
-        <div className="eyebrow">{sub}</div>
-        <div className={`text-[13px] font-semibold ${filled ? 'text-[var(--accent-2)]' : 'text-[var(--text-1)]'}`}>
-          Scenario {label}
-        </div>
-      </div>
-      <span
-        className={`tnum grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold ${
-          filled ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface-3)] text-[var(--text-3)]'
-        }`}
-      >
-        {filled ? '✓' : label}
-      </span>
-    </button>
   );
 }

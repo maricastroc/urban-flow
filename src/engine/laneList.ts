@@ -25,8 +25,9 @@ export function pushBack(
   agents.ahead[id] = oldTail;
   agents.behind[id] = NONE;
   if (oldTail === NONE) {
-    occ.head[lane] = id;
-    agents.behind[oldTail] = id;
+    occ.head[lane] = id; // lane was empty
+  } else {
+    agents.behind[oldTail] = id; // link the previous tail forward to the newcomer
   }
   occ.tail[lane] = id;
 }
