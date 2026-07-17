@@ -15,6 +15,8 @@ import {
 } from './thermal';
 
 export interface RenderCar {
+  readonly id: number;
+  readonly key: number; // enterTime — identity across slot reuse (unused by the renderer)
   readonly lane: number;
   readonly s: number;
   readonly length: number;
@@ -26,6 +28,9 @@ export interface RenderOverlay {
   readonly hoverLane: number;
   readonly selectedJunction: number;
   readonly hoverJunction: number;
+  readonly selectedCar: number; // agent id of the traced car, or -1
+  readonly carRoute: readonly number[]; // its full lane sequence (empty if none)
+  readonly carRouteIdx: number; // index in carRoute of the car's current lane
   readonly now: number; // ms timestamp, drives all canvas motion
 }
 
@@ -34,6 +39,9 @@ const NO_OVERLAY: RenderOverlay = {
   hoverLane: -1,
   selectedJunction: -1,
   hoverJunction: -1,
+  selectedCar: -1,
+  carRoute: [],
+  carRouteIdx: -1,
   now: 0,
 };
 
@@ -67,7 +75,7 @@ export function drawScene(
   const meanSF = (lane: number) => (load[lane] ? sumSF[lane] / load[lane] : 1); // empty lane = free-flowing
 
   // Focus set: the selection and its immediate network context (spotlight, rest dims).
-  const hasSel = overlay.selectedLane >= 0 || overlay.selectedJunction >= 0;
+  const hasSel = overlay.selectedLane >= 0 || overlay.selectedJunction >= 0 || overlay.carRoute.length > 0;
   const focus = new Set<number>();
   if (overlay.selectedLane >= 0) focus.add(overlay.selectedLane);
   if (overlay.selectedJunction >= 0) {
@@ -76,6 +84,7 @@ export function drawScene(
       for (const cId of ap.conns) focus.add(graph.connections[cId].toLane);
     }
   }
+  for (const lane of overlay.carRoute) focus.add(lane); // the traced route stays lit
   const dimOf = (lane: number) => (hasSel && !focus.has(lane) ? 0.28 : 1);
 
   const A: Pt[] = new Array(n);
@@ -135,10 +144,17 @@ export function drawScene(
   }
   ctx.globalAlpha = 1;
 
+  if (overlay.carRoute.length > 0) drawRoute(ctx, A, B, overlay.carRoute, overlay.carRouteIdx, now);
+
   for (const c of cars) {
     const p = placementAt(geom, c.lane, c.s);
     const sp = project(cam, p.x, p.y);
     drawCar(ctx, sp, p.heading, Math.max(8, c.length * cam.scale * 1.05), Math.max(4.6, 2.5 * cam.scale), c.speedFrac, dimOf(c.lane));
+    if (c.id === overlay.selectedCar) {
+      const t = (now / 1400) % 1;
+      ring(ctx, sp.x, sp.y, 6 + t * 7, rgba(ACCENT, 0.5 * (1 - t)), 1.6);
+      ring(ctx, sp.x, sp.y, 6, rgba(ACCENT, 0.95), 1.5);
+    }
   }
 
   for (let i = 0; i < n; i++) {
@@ -384,6 +400,36 @@ function drawJunction(
     ring(ctx, jp.x, jp.y, r0 + 2 + t * 9, rgba(ACCENT, 0.5 * (1 - t)), 1.6);
     ring(ctx, jp.x, jp.y, r0 + 2.5, rgba(ACCENT, 0.9), 1.6);
   }
+}
+
+// The selected car's Dijkstra route: covered lanes faint, remaining lanes bright
+// with dashes flowing toward a pulsing destination marker.
+function drawRoute(ctx: CanvasRenderingContext2D, A: Pt[], B: Pt[], lanes: readonly number[], idx: number, now: number): void {
+  ctx.lineCap = 'round';
+  for (let k = 0; k < lanes.length; k++) {
+    const L = lanes[k];
+    const remaining = k >= idx;
+    strokeSeg(ctx, A[L], B[L], rgba(ACCENT, remaining ? 0.85 : 0.2), remaining ? 2.6 : 1.6);
+  }
+
+  ctx.save();
+  ctx.setLineDash([5, 7]);
+  ctx.lineDashOffset = -((now / 45) % 12); // flows a→b, the travel direction
+  ctx.strokeStyle = rgba([214, 230, 255], 0.9);
+  ctx.lineWidth = 1.3;
+  for (let k = Math.max(0, idx); k < lanes.length; k++) {
+    const L = lanes[k];
+    ctx.beginPath();
+    ctx.moveTo(A[L].x, A[L].y);
+    ctx.lineTo(B[L].x, B[L].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const dest = B[lanes[lanes.length - 1]];
+  const pulse = 0.5 + 0.5 * Math.sin(now / 500);
+  ring(ctx, dest.x, dest.y, 4.5 + 2.5 * pulse, rgba(ACCENT, 0.45 * (1 - pulse * 0.5)), 1.6);
+  ring(ctx, dest.x, dest.y, 3, rgba(ACCENT, 0.95), 1.8);
 }
 
 function strokeSeg(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, style: string, w: number): void {

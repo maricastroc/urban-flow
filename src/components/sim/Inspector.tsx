@@ -30,13 +30,54 @@ export function Inspector({
   if (sel.kind === 'none') return <InspectorEmpty />;
 
   return (
-    <section className={`${CARD} anim-up p-4`} key={sel.kind === 'lane' ? `l${sel.lane}` : `j${sel.j}`}>
+    <section
+      className={`${CARD} anim-up p-4`}
+      key={sel.kind === 'lane' ? `l${sel.lane}` : sel.kind === 'car' ? `c${sel.id}` : `j${sel.j}`}
+    >
       {sel.kind === 'junction' ? (
         <JunctionInspector scene={scene} j={sel.j} stats={stats} bump={bump} onClear={onClear} />
+      ) : sel.kind === 'car' ? (
+        <CarInspector stats={stats} onClear={onClear} sinkLabelOf={sinkLabelOf} />
       ) : (
         <LaneInspector scene={scene} lane={sel.lane} s={sel.s} stats={stats} bump={bump} onClear={onClear} sinkLabelOf={sinkLabelOf} />
       )}
     </section>
+  );
+}
+
+function CarInspector({
+  stats,
+  onClear,
+  sinkLabelOf,
+}: {
+  stats: SelStats | null;
+  onClear: () => void;
+  sinkLabelOf: (sink: number) => string;
+}) {
+  const cs = stats?.kind === 'car' ? stats : null;
+  const cong = cs && cs.freeKmh > 0 ? 1 - Math.min(1, cs.speedKmh / cs.freeKmh) : 0;
+
+  return (
+    <>
+      <InspectorHeader kind="Vehicle" title={cs && cs.dest >= 0 ? `→ ${sinkLabelOf(cs.dest)}` : 'Car'} onClear={onClear} />
+
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <Metric
+          label="Speed"
+          value={cs ? String(Math.round(cs.speedKmh)) : '—'}
+          unit="km/h"
+          tone={!cs ? undefined : cong > 0.6 ? 'bad' : cong > 0.3 ? 'warn' : 'good'}
+          bar={cs && cs.freeKmh > 0 ? Math.min(1, cs.speedKmh / cs.freeKmh) : 0}
+        />
+        <Metric label="Progress" value={cs ? String(Math.round(cs.progress * 100)) : '—'} unit="%" tone="good" bar={cs ? cs.progress : 0} />
+      </div>
+
+      <p className="text-[11.5px] leading-snug text-[var(--text-3)]">
+        {cs
+          ? `${cs.hopsLeft} ${cs.hopsLeft === 1 ? 'road' : 'roads'} to its destination — its shortest path (Dijkstra) is traced on the map.`
+          : 'Tracing its route…'}
+      </p>
+    </>
   );
 }
 
@@ -45,6 +86,7 @@ function InspectorEmpty() {
     { c: 'var(--good)', shape: 'tri', t: 'Entries & exits', d: 'Set demand and destinations per gateway.' },
     { c: 'var(--accent)', shape: 'dot', t: 'Junctions', d: 'Add signals or flip which street has priority.' },
     { c: 'var(--text-2)', shape: 'bar', t: 'Roads', d: 'Close a road or drop an incident to reroute flow.' },
+    { c: 'var(--accent-2)', shape: 'car', t: 'Cars', d: 'Click one to trace its shortest path across the grid.' },
   ];
   return (
     <section className={`${CARD} anim-fade p-4`}>

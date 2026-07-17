@@ -1,7 +1,7 @@
 # Urban Flow — Progress
 
 Built incrementally in small, tested steps ("Etapas"). See `DESIGN.md` for the architecture.
-Status: **13 etapas done, 69 vitest tests passing, typecheck + lint clean.**
+Status: **14 etapas done, 72 vitest tests passing, typecheck + lint clean.**
 
 ## Done
 
@@ -20,6 +20,7 @@ Status: **13 etapas done, 69 vitest tests passing, typecheck + lint clean.**
 | 11 — Controlled A/B + fast-forward | The A/B panel became a **controlled experiment** (`runExperiment`, §19): baseline vs. the staged intervention, both run headless on two freshly-seeded worlds for the same duration, so the delta is the intervention's effect — not time or noise. Deterministic and tested. A headless **fast-forward** (+60s) skips the wait for the network to fill. Also split the 1072-line `SimulationCanvas.tsx` into `components/sim/*` and extracted `render/thermal.ts`. +3 tests. |
 | 12 — Metrics time-series | A rolling **sparkline** on the two dynamic HUD vitals (§20): Flow /min (accent, auto-scaled) and km/h (green, scaled to free-flow) each carry a 60s live trace, newest pinned right. Pure geometry (`render/sparkline.ts`: ring buffer + SVG path strings) with an imperative shell (`components/sim/Sparkline.tsx`) fed once per sim-second from the RAF loop — no React re-render, consistent window at any speed. Cars/Trips stay counters. Presentation-only; +9 tests. |
 | 13 — Experiment presets | One-click **scenario presets** (§21): *Rush hour* (flood every entry), *Close the artery* (shut the central road → new traffic reroutes), *Signalize the centre* (lights on the middle junction). Each stages a **fresh same-seed network** — its demand + its one intervention — ready to watch live or run the A/B on. Deterministic central-junction pick from grid geometry (`render/presets.ts`, unit-tested & idempotent). Also gave the HUD header room to breathe now that the sparklines sit under the numerals. Presentation-only; +6 tests. |
+| 14 — Trace a car's route | Click a car → its **Dijkstra route** lights up across the grid (§22): remaining path in accent with dashes flowing to a pulsing destination marker, covered path faint, the rest of the network dimmed (reusing the spotlight), and an accent halo on the car. A **Vehicle inspector** shows destination, live speed, and route progress. Robust car identity across free-list slot reuse via an `enterTime` key. Pure route/progress helpers (`render/carTrace.ts`); presentation-only; +3 tests. |
 
 ## Key decisions (rationale)
 
@@ -73,6 +74,11 @@ Status: **13 etapas done, 69 vitest tests passing, typecheck + lint clean.**
   unit-tested). The central junction/artery is derived from grid geometry (nearest the centroid), so it
   stays stable without hard-coding lane/node indices. They feed the same controlled A/B (§19): one click
   to a runnable experiment. Demand-only presets (rush hour) leave the A/B disabled — nothing to compare.
+- **Car identity needs a key, not just a slot (Etapa 14)** — agent ids are recycled by the free-list, so
+  a bare id would silently re-target the route trace when a despawn+respawn reuses the slot. Pinning the
+  selection to `(id, enterTime)` (the spawn stamp) fixes it: the trace clears the instant *its* car
+  arrives, even if a new car lands in the same slot the next tick. The route itself is read straight from
+  the agent's `routeBuffer` slice — no recompute, and the traversed/remaining split is just `routeIdx`.
 
 ## Quirks / gotchas
 
@@ -102,7 +108,6 @@ npm run dev -- --port 3477   # dev server (open http://localhost:3477)
   eventually a WASM sim core. This is the performance story for the portfolio.
 - **Lane changing (MOBIL)** + multiple lanes per direction (breaks the no-overtaking invariant —
   the per-lane list would need per-lane insertion/removal mid-lane).
-- **Select a car → trace its Dijkstra route** on the map (needs a new pick interaction).
 - **Shareable URL** — serialize the scenario overlay + seed into the URL to share a specific run
   (most useful once deployed).
 - **Onboarding depth** — spotlight the exact road/button the coach references; persist "tour done".

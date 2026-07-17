@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tick } from '@/engine';
 import { createScene, setDemandRate, sampleStats, runExperiment, type Scene, type ExperimentResult } from '@/render/scene';
 import { type Preset } from '@/render/presets';
-import { fitCamera, project, unproject, nearestLane } from '@/render/geometry';
+import { carRoute, isSelectedCarLive } from '@/render/carTrace';
+import { fitCamera, project, unproject, nearestLane, placementAt } from '@/render/geometry';
 import { drawScene, type RenderCar, type RenderOverlay } from '@/render/renderer';
 import {
   computeSelStats,
@@ -29,6 +30,8 @@ const SAMPLE_DT = 1.0; // sim-seconds between sparkline samples
 const DEFAULT_DEMAND = 4;
 const LANE_TOL_M = 7;
 const JUNCTION_TOL_PX = 15;
+const CAR_TOL_PX = 11;
+const EMPTY_ROUTE: number[] = [];
 
 export function SimulationCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,6 +50,7 @@ export function SimulationCanvas() {
   const selRef = useRef<Selection>(NONE_SEL);
   const hoverLaneRef = useRef(-1);
   const hoverJctRef = useRef(-1);
+  const carsRef = useRef<RenderCar[]>([]); // last frame's cars (interpolated), for car picking
 
   // Live HUD readouts update imperatively each frame (refs + tween) to avoid 60fps React renders.
   const hudCars = useRef<HTMLSpanElement>(null);
@@ -110,7 +114,15 @@ export function SimulationCanvas() {
 
   useEffect(() => {
     if (sel.kind === 'none') return;
-    const id = window.setInterval(() => setSelStats(computeSelStats(sceneRef.current, selRef.current)), 200);
+    const id = window.setInterval(() => {
+      const st = computeSelStats(sceneRef.current, selRef.current);
+      if (st === null && selRef.current.kind === 'car') {
+        setSel(NONE_SEL); // the traced car reached its destination
+        setSelStats(null);
+      } else {
+        setSelStats(st);
+      }
+    }, 200);
     return () => window.clearInterval(id);
   }, [sel]);
 
@@ -162,6 +174,23 @@ export function SimulationCanvas() {
     const px = clientX - rect.left;
     const py = clientY - rect.top;
     const cam = fitCamera(scene.geometry, rect.width, rect.height);
+
+    // Cars first — the smallest, most specific target (tight tolerance so it doesn't
+    // steal clicks meant for a junction node or a road).
+    let bestCar = -1;
+    let bestKey = 0;
+    let bestCarD = CAR_TOL_PX;
+    for (const c of carsRef.current) {
+      const p = placementAt(scene.geometry, c.lane, c.s);
+      const sp = project(cam, p.x, p.y);
+      const d = Math.hypot(sp.x - px, sp.y - py);
+      if (d < bestCarD) {
+        bestCarD = d;
+        bestCar = c.id;
+        bestKey = c.key;
+      }
+    }
+    if (bestCar >= 0) return { kind: 'car', id: bestCar, key: bestKey };
 
     let bestJ = -1;
     let bestJD = JUNCTION_TOL_PX;
@@ -250,15 +279,30 @@ export function SimulationCanvas() {
         const cur = agents.s[id];
         const interp = prevActive[id] === 1 && prevLane[id] === lane;
         const s = interp ? prevS[id] + (cur - prevS[id]) * alpha : cur;
-        cars.push({ lane, s, length: world.vparams[agents.type[id]].length, speedFrac: agents.v[id] / v0 });
+        cars.push({ id, key: agents.enterTime[id], lane, s, length: world.vparams[agents.type[id]].length, speedFrac: agents.v[id] / v0 });
       }
+      carsRef.current = cars;
 
       const cur = selRef.current;
+      let selCar = -1;
+      let carRouteLanes: readonly number[] = EMPTY_ROUTE;
+      let carRouteI = -1;
+      if (cur.kind === 'car' && isSelectedCarLive(world, cur.id, cur.key)) {
+        selCar = cur.id;
+        const r = carRoute(world, cur.id);
+        if (r) {
+          carRouteLanes = r.lanes;
+          carRouteI = r.idx;
+        }
+      }
       const overlay: RenderOverlay = {
         selectedLane: cur.kind === 'lane' ? cur.lane : -1,
         hoverLane: hoverLaneRef.current,
         selectedJunction: cur.kind === 'junction' ? cur.j : -1,
         hoverJunction: hoverJctRef.current,
+        selectedCar: selCar,
+        carRoute: carRouteLanes,
+        carRouteIdx: carRouteI,
         now: ts,
       };
       drawScene(ctx, canvas.clientWidth, canvas.clientHeight, scene, cars, overlay);

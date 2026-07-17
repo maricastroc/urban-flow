@@ -1,22 +1,39 @@
 import { NONE } from '@/engine';
 import type { Scene } from '@/render/scene';
+import { carRoute, carProgress, isSelectedCarLive } from '@/render/carTrace';
 
 export const unitsToRate = (u: number) => u * 0.1;
 
 export type Selection =
   | { kind: 'none' }
   | { kind: 'lane'; lane: number; s: number }
-  | { kind: 'junction'; j: number };
+  | { kind: 'junction'; j: number }
+  | { kind: 'car'; id: number; key: number }; // key = enterTime, pins identity across slot reuse
 
 export const NONE_SEL: Selection = { kind: 'none' };
 
 export type SelStats =
   | { kind: 'lane'; cars: number; speedKmh: number; freeKmh: number }
-  | { kind: 'junction'; queued: number; greenAxis: string; secLeft: number };
+  | { kind: 'junction'; queued: number; greenAxis: string; secLeft: number }
+  | { kind: 'car'; speedKmh: number; freeKmh: number; progress: number; hopsLeft: number; dest: number };
 
 export function computeSelStats(scene: Scene, sel: Selection): SelStats | null {
   if (sel.kind === 'none') return null;
   const { agents, occ, graph, vparams } = scene.world;
+
+  if (sel.kind === 'car') {
+    if (!isSelectedCarLive(scene.world, sel.id, sel.key)) return null; // arrived / recycled
+    const r = carRoute(scene.world, sel.id);
+    const v0 = graph.speedLimit[agents.lane[sel.id]] * vparams[0].v0Factor;
+    return {
+      kind: 'car',
+      speedKmh: agents.v[sel.id] * 3.6,
+      freeKmh: v0 * 3.6,
+      progress: carProgress(scene.world, sel.id),
+      hopsLeft: r ? r.lanes.length - 1 - r.idx : 0,
+      dest: r ? r.lanes[r.lanes.length - 1] : -1,
+    };
+  }
 
   if (sel.kind === 'lane') {
     let cars = 0;

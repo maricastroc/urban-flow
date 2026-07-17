@@ -156,6 +156,8 @@ uniformly (seeded) and points the agent's `routeStart/End/Idx` at the slice.
   `sparkGeometry`, which maps a value series to SVG polyline/area path strings (DOM-free, unit-tested).
 - `presets.ts` — one-click experiment scenarios (§21): `PRESETS` (demand + optional intervention) and
   `centralJunction` (grid-geometry-derived), so a preset stages the same thing every run (unit-tested).
+- `carTrace.ts` — pure helpers for the car-route trace (§22): `carRoute` (an agent's `routeBuffer`
+  slice + current index), `carProgress` (0..1 by distance), `isSelectedCarLive` (identity via enterTime).
 - `grid.ts` — `buildGrid(rows, cols)` **procedurally generates a one-way Manhattan grid**: streets
   alternate direction by row/column; each junction wires straight + turn movements with
   **over-declared per-node conflicts** (every movement conflicts with every movement from another
@@ -330,7 +332,7 @@ glow drowned the cars); the flow field is a faint streak, never a bright dot (wh
 **Scale.** The demo grid moved to **5×5** (`scene.ts` `GRID`): denser topology reads as a system, and
 the auto-fit camera keeps elements legible. Engine/behaviour is untouched — only the scene's size.
 
-**Deferred (a new interaction, out of this scope):** selecting a *car* to trace its Dijkstra route.
+**Since shipped (Etapa 14, §22):** selecting a *car* to trace its Dijkstra route.
 
 ## 19. Controlled A/B experiments + fast-forward (Etapa 11)
 
@@ -413,3 +415,24 @@ the intervention presets flip it on and auto-advance the coach to "run the A/B".
 **UI (`components/sim/Presets.tsx`).** A card in the right rail between the inspector and the experiment —
 each preset a button with a semantic dot (amber/red/accent), title, and one-line description. It reads as
 "quick-start scenarios", upstream of the manual inspector controls and the A/B that consumes them.
+
+## 22. Trace a car's route (Etapa 14)
+
+Click a car and its **Dijkstra route** lights up across the grid — the payoff of the routing engine (§10)
+made visible. Presentation-only; the route was already computed and stored, this just reads and draws it.
+
+**Selection.** A new `{ kind: 'car'; id; key }` selection. Hit-testing tries cars first (a tight pixel
+tolerance against the *interpolated* positions the loop stashes each frame), then junctions, then lanes —
+cars are the smallest, most specific target. `key` is the agent's `enterTime`: the free-list recycles
+slots, so `(id, key)` pins one specific vehicle and the trace self-clears the moment *its* car arrives
+(even if a new car reuses the slot the next tick). All in `render/carTrace.ts`, pure and unit-tested.
+
+**The trace (`renderer.ts` `drawRoute`).** The route is the agent's `routeBuffer` slice; `routeIdx` splits
+it into covered (faint accent) and remaining (bright accent, with dashes flowing a→b toward a pulsing
+destination marker). The route lanes join the focus set, so the existing **spotlight** (§18) dims the rest
+of the network to context and the car gets an accent halo — the same visual language as selecting a lane
+or junction, no new mode.
+
+**Vehicle inspector.** Destination (compass label of the route's sink), live speed (congestion-toned), and
+route **progress** (0..1 by distance, `carProgress`) with a bar, plus roads-to-go. It polls at ~5 Hz like
+the other inspectors; when the car arrives, `computeSelStats` returns null and the selection clears.

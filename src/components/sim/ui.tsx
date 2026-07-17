@@ -67,6 +67,7 @@ export function LegendGlyph({ color, shape }: { color: string; shape: string }) 
       {shape === 'tri' && <path d="M8 3l5 9H3z" fill={color} />}
       {shape === 'dot' && <circle cx="8" cy="8" r="4" fill={color} />}
       {shape === 'bar' && <rect x="2" y="6" width="12" height="4" rx="1.5" fill={color} />}
+      {shape === 'car' && <rect x="3" y="5.5" width="10" height="5" rx="2.2" fill={color} />}
     </svg>
   );
 }
