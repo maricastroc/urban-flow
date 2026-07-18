@@ -14,13 +14,17 @@ export function Optimizer({
   result,
   onRun,
   onStage,
+  isStaged,
+  stale,
 }: {
   running: boolean;
   done: number;
   total: number;
-  result: { baseline: Stats; rows: SweepRow[] } | null;
+  result: { baseline: Stats; rows: SweepRow[]; sig: string } | null;
   onRun: () => void;
   onStage: (c: Candidate) => void;
+  isStaged: (c: Candidate) => boolean;
+  stale: boolean;
 }) {
   const best = result?.rows[0];
   const helps = !!best && best.tripsDelta > 0.005;
@@ -46,7 +50,7 @@ export function Optimizer({
         <div className="eyebrow">Optimizer</div>
       </div>
       <p className="mb-3 text-[11.5px] leading-snug text-(--text-3)">
-        Tests signalizing and flipping priority at every junction — same seed, same demand — and ranks what moves throughput.
+        Tests every remaining signal/priority change on top of your current network — same seed, same demand — and ranks the best next move.
       </p>
 
       {!result && (
@@ -73,12 +77,23 @@ export function Optimizer({
         <div>
           <div className="mb-2 flex items-center justify-between">
             <span className="eyebrow">Best interventions</span>
-            <button onClick={onRun} disabled={running} className="eyebrow text-(--accent-2) transition-colors hover:text-(--accent) disabled:opacity-40">
+            <button
+              onClick={onRun}
+              disabled={running}
+              className="eyebrow transition-[filter] hover:brightness-110 disabled:opacity-40"
+              style={{ color: stale ? 'var(--warn)' : 'var(--accent-2)' }}
+            >
               {running ? `${done}/${total}` : 'Rerun'}
             </button>
           </div>
 
-          {!helps && (
+          {stale && (
+            <div className="mb-2 rounded-lg bg-(--warn)/10 px-2.5 py-1.5 text-[11px] leading-snug text-(--warn) ring-1 ring-(--warn)/25">
+              Network changed — these results are from an earlier configuration. Rerun to update them.
+            </div>
+          )}
+
+          {!stale && !helps && (
             <p className="mb-2 text-[11.5px] leading-snug text-(--warn)">
               No single fix beats the baseline at this demand — add load (Rush hour) and rerun.
             </p>
@@ -86,19 +101,30 @@ export function Optimizer({
 
           <div className="flex flex-col gap-1">
             {result.rows.slice(0, 6).map((row, i) => {
-              const top = i === 0 && helps;
+              const active = isStaged(row.candidate);
+              const top = i === 0 && helps && !active;
               return (
                 <button
                   key={row.candidate.id}
                   onClick={() => stage(row.candidate)}
-                  title="Stage this on the live network"
+                  title={active ? 'Live on the network — click to re-stage' : 'Stage this on the live network'}
                   className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
-                    top ? 'bg-(--accent-soft) ring-1 ring-(--accent)/40' : 'bg-(--surface-2) hover:bg-(--surface-3)'
+                    active
+                      ? 'bg-(--good)/10 ring-1 ring-(--good)/45'
+                      : top
+                        ? 'bg-(--accent-soft) ring-1 ring-(--accent)/40'
+                        : 'bg-(--surface-2) hover:bg-(--surface-3)'
                   }`}
                 >
                   <span className="tnum w-4 shrink-0 text-center text-[11px] font-bold text-(--text-3)">{i + 1}</span>
                   <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-(--text-1)">{row.candidate.label}</span>
-                  <span className="tnum text-[12px] font-semibold" style={{ color: toneOf(row.tripsDelta) }}>
+                  {active && (
+                    <span className="shrink-0 text-[11px] font-bold text-(--good)" title="Staged">✓</span>
+                  )}
+                  <span
+                    className="tnum text-[12px] font-semibold"
+                    style={{ color: stale ? 'var(--text-3)' : toneOf(row.tripsDelta), opacity: stale ? 0.55 : 1 }}
+                  >
                     {pct(row.tripsDelta)}
                   </span>
                 </button>
@@ -114,7 +140,7 @@ export function Optimizer({
           )}
 
           <p className="mt-3 text-[11px] leading-relaxed text-(--text-3)">
-            Δ trips over 1 sim-min vs. {result.baseline.completedTrips} baseline. Click a fix to stage it, then run the A/B to confirm.
+            Δ trips over 1 sim-min vs. your current network ({result.baseline.completedTrips} trips). Click a fix to stage it, then run the A/B to confirm.
           </p>
         </div>
       )}

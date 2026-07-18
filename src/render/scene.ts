@@ -133,6 +133,27 @@ export function toggleSignal(scene: Scene, j: number, seconds = DEFAULT_SIGNAL_S
   return true;
 }
 
+/**
+ * A cheap string fingerprint of everything the optimizer's baseline depends on
+ * (demand + closures + incidents + priority flips + signals). If it differs from
+ * the value captured at sweep time, the shown results are stale.
+ */
+export function scenarioSignature(scene: Scene): string {
+  const c = scene.world.control;
+  const conns = scene.world.graph.connections;
+  let closed = '';
+  for (let i = 0; i < c.laneClosed.length; i++) if (c.laneClosed[i]) closed += `${i},`;
+  let inc = '';
+  for (let i = 0; i < c.incidentAt.length; i++) if (c.incidentAt[i] < Infinity) inc += `${i},`;
+  let flips = '';
+  for (let i = 0; i < c.rank.length; i++) if (c.rank[i] !== conns[i].rank) flips += `${i},`;
+  const sig = scene.signals.map((s, j) => (s?.enabled ? j : '')).filter((x) => x !== '').join(',');
+  const demand = scene.sources
+    .map((s) => `${s.rate}:${[...s.allowed].sort((a, b) => a - b).join('.')}`)
+    .join('|');
+  return `C${closed}I${inc}F${flips}S${sig}D${demand}`;
+}
+
 export function clearInterventions(scene: Scene): void {
   const c = scene.world.control;
   const conns = scene.world.graph.connections;

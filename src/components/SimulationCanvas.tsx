@@ -4,7 +4,7 @@ import 'react-tooltip/dist/react-tooltip.css';
 import { Tooltip } from 'react-tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tick } from '@/engine';
-import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
+import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, scenarioSignature, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
 import { type Preset } from '@/render/presets';
 import { generateCandidates, sweepBaseline, sweepCandidate, type SweepRow, type Candidate } from '@/render/optimize';
 import { carRoute, isSelectedCarLive } from '@/render/carTrace';
@@ -95,7 +95,7 @@ export function SimulationCanvas() {
   const [coachDismissed, setCoachDismissed] = useState(false);
   const [sweepRunning, setSweepRunning] = useState(false);
   const [sweepProg, setSweepProg] = useState({ done: 0, total: 0 });
-  const [sweepResult, setSweepResult] = useState<{ baseline: Stats; rows: SweepRow[] } | null>(null);
+  const [sweepResult, setSweepResult] = useState<{ baseline: Stats; rows: SweepRow[]; sig: string } | null>(null);
 
   useEffect(() => void (playingRef.current = playing), [playing]);
   useEffect(() => void (speedRef.current = speed), [speed]);
@@ -176,6 +176,7 @@ export function SimulationCanvas() {
   const runSweep = useCallback(() => {
     const scene = sceneRef.current;
     const candidates = generateCandidates(scene);
+    const sig = scenarioSignature(scene);
     setSweepRunning(true);
     setSweepResult(null);
     setSweepProg({ done: 0, total: candidates.length });
@@ -191,7 +192,7 @@ export function SimulationCanvas() {
           window.setTimeout(step, 0);
         } else {
           rows.sort((a, b) => b.tripsDelta - a.tripsDelta || b.speedDelta - a.speedDelta);
-          setSweepResult({ baseline: base.stats, rows });
+          setSweepResult({ baseline: base.stats, rows, sig });
           setSweepRunning(false);
         }
       };
@@ -211,6 +212,19 @@ export function SimulationCanvas() {
 
   const pulseJunction = useCallback((j: number) => {
     stagedRef.current = { junction: j, at: performance.now() };
+  }, []);
+
+  // Is this optimizer candidate's intervention currently live on the network?
+  // Derived from the scene (not from clicks) so it stays truthful across Clear
+  // staged, inspector toggles, and re-staging.
+  const isCandidateStaged = useCallback((c: Candidate) => {
+    const scene = sceneRef.current;
+    if (c.kind === 'signal') return scene.signals[c.junction]?.enabled === true;
+    const { rank } = scene.world.control;
+    const conns = scene.world.graph.connections;
+    return scene.junctions[c.junction].approaches.some((ap) =>
+      ap.conns.some((ci) => rank[ci] !== conns[ci].rank),
+    );
   }, []);
 
   const fastForward = useCallback(() => {
@@ -412,6 +426,7 @@ export function SimulationCanvas() {
   );
 
   const changed = scenarioChanged(scene);
+  const sweepStale = !!sweepResult && scenarioSignature(scene) !== sweepResult.sig;
   const coachStep = !changed ? 0 : !expResult ? 1 : 2;
 
   return (
@@ -470,6 +485,8 @@ export function SimulationCanvas() {
             result={sweepResult}
             onRun={runSweep}
             onStage={stageCandidate}
+            isStaged={isCandidateStaged}
+            stale={sweepStale}
           />
         </aside>
       </div>
