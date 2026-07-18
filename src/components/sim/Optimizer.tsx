@@ -4,6 +4,11 @@ import type { SweepRow, Candidate } from '@/render/optimize';
 import { CARD } from './ui';
 import { IconTarget } from './icons';
 
+// Below this many active cars in the 1-min baseline the 5×5 grid is too sparse for a
+// signal/priority change to bite — "no fix helps" then really is a demand problem.
+// Kept conservative so a busy-but-optimal grid is never wrongly told to add load.
+const LOW_LOAD_CARS = 20;
+
 const pct = (d: number) => `${d > 0 ? '+' : ''}${(d * 100).toFixed(0)}%`;
 const toneOf = (d: number) => (d > 0.005 ? 'var(--good)' : d < -0.005 ? 'var(--bad)' : 'var(--text-3)');
 
@@ -28,6 +33,7 @@ export function Optimizer({
 }) {
   const best = result?.rows[0];
   const helps = !!best && best.tripsDelta > 0.005;
+  const underloaded = !!result && result.baseline.cars < LOW_LOAD_CARS;
 
   const [staged, setStaged] = useState<{ kind: Candidate['kind']; id: number } | null>(null);
   const stageId = useRef(0);
@@ -95,7 +101,9 @@ export function Optimizer({
 
           {!stale && !helps && (
             <p className="mb-2 text-[11.5px] leading-snug text-(--warn)">
-              No single fix beats the baseline at this demand — add load (Rush hour) and rerun.
+              {underloaded
+                ? 'Barely any traffic to optimize at this demand — add load (Rush hour) and rerun.'
+                : 'No single change beats your current network at this demand — it may already be near-optimal here. Try a heavier scenario (Rush hour) to stress-test it.'}
             </p>
           )}
 
