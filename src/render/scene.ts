@@ -70,7 +70,29 @@ export function createScene(rate: number): Scene {
 
 export function applyRoutes(scene: Scene): void {
   const { world } = scene;
+  const { agents } = world;
   const closed = world.control.laneClosed;
+
+  // addRoute only appends, so recomputing routes on every intervention would
+  // grow routeBuffer without bound — a slow leak that surfaces as GC jank after
+  // a long session. Rebuild the buffer from scratch here. In-flight agents hold
+  // absolute offsets into it, so relocate each live agent's route slice and
+  // remap its indices before the old contents are dropped.
+  const oldBuffer = world.routeBuffer;
+  const next: number[] = [];
+  for (let id = 0; id < agents.capacity; id++) {
+    if (agents.active[id] === 0) continue;
+    const start = agents.routeStart[id];
+    const end = agents.routeEnd[id];
+    if (end <= start) continue;
+    const base = next.length;
+    for (let k = start; k < end; k++) next.push(oldBuffer[k]);
+    agents.routeIdx[id] = base + (agents.routeIdx[id] - start);
+    agents.routeStart[id] = base;
+    agents.routeEnd[id] = next.length;
+  }
+  world.routeBuffer = next;
+
   for (const ctl of scene.sources) {
     const routes = [];
     for (const sink of ctl.allowed) {
