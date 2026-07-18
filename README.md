@@ -6,7 +6,7 @@
   <br>
 </h1>
 
-<h4 align="center">A deterministic, agent-based traffic simulation you can experiment on — close roads, stage incidents, retune demand, and watch the network reroute and re-settle in real time.</h4>
+<h4 align="center">A deterministic, agent-based traffic simulation you can experiment on — close roads, retune demand, watch the network reroute, then run controlled experiments (or let it auto-search) to find what actually helps.</h4>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js" />
@@ -39,9 +39,12 @@
 | **🧭 Shortest-path routing** | Cars are routed by Dijkstra over the lane graph to a destination, and **detour automatically** when a road ahead is closed.                                                                                                 |
 | **🚦 Give-way & signals**    | Junctions resolve conflicts by strict-priority gap acceptance (unique ranks ⇒ deadlock-free), or switch — per junction, live — to a fixed-cycle traffic signal.                                                             |
 | **🧪 Scenario control**      | Close / reopen roads, drop incidents, retune demand per entry, choose destinations, and flip right-of-way. The network reroutes and re-settles in real time.                                                                |
+| **⚡ One-click scenarios**   | Preset situations — _rush hour_, _close the artery_, _signalize the centre_ — each stage a fresh, same-seed network, ready to watch live or run an experiment on.                                                            |
 | **📊 Controlled A/B**        | Stage a change (a closure, a signal…), then run baseline vs. your change on two **same-seed** worlds for the same duration — so the impact on trips, speed and travel time is _your change_, not elapsed time or noise. Runs headless; a fast-forward skips the wait for traffic to build.                                                              |
+| **🔎 Auto-optimizer**        | Let the simulation search for you: it sweeps every single-junction fix (signalize / flip priority) as a controlled **same-seed** experiment, ranks them by throughput, and surfaces a **leaderboard of what actually helps** — click a result to stage it on the live network and confirm it with the A/B.                                             |
 | **🌡️ Living thermal map**    | Roads, junctions, flow and cars share one heat language: congestion warms the mesh, an always-on flow field shows each street's direction without cars, and critical junctions glow.                                         |
-| **🎯 Focus & inspect**       | Click any road or junction to spotlight it — the rest of the network recedes — and read its live stats: cars, speed, queue length, signal phase.                                                                            |
+| **🎯 Focus & inspect**       | Click any road, junction **or car** to spotlight it — the rest of the network recedes — and read its live stats: cars, speed, queue length, signal phase. Select a car and its **Dijkstra route** lights up all the way to its exit.                                                                                                                   |
+| **📈 Live metrics**          | A top-bar HUD with rolling **sparklines** for throughput and speed, so the network's dynamics read over time — not just as a single number.                                                                                 |
 | **♻️ Deterministic & tested** | Same world + same seed → identical run, bit for bit. The pure engine (IDM, routing, give-way, signals) is fully unit-tested with Vitest.                                                                                    |
 
 <br/>
@@ -59,7 +62,7 @@ tick(world):
   FASE 3  advance         cross junctions + despawn (record metrics)
 ```
 
-- **Deterministic by construction** — fixed `dt = 0.2s`, a seeded `mulberry32` PRNG, fixed iteration order, and a two-phase _read-all-then-write-all_ update. Same world + same seed → identical state, so the core is testable offline with fixtures — and it powers the **controlled A/B**: baseline and intervention run on two same-seed worlds for the same duration, so the delta is the change, not time or noise.
+- **Deterministic by construction** — fixed `dt = 0.2s`, a seeded `mulberry32` PRNG, fixed iteration order, and a two-phase _read-all-then-write-all_ update. Same world + same seed → identical state, so the core is testable offline with fixtures — and it powers the **controlled A/B**: baseline and intervention run on two same-seed worlds for the same duration, so the delta is the change, not time or noise. The **optimizer** cashes the same property in at scale, sweeping every candidate intervention headless against one shared baseline to rank what helps.
 - **Structure-of-Arrays** — agent state lives in typed arrays (cache-friendly, and transferable across a Web Worker / `SharedArrayBuffer` boundary later, with no reshaping).
 - **Car-following (IDM)** — `idmAcceleration` is the pure Intelligent Driver Model; `integrate` uses a ballistic scheme with a stop-handling branch so a car brakes to rest _within_ a step instead of reversing, plus an overlap guard against the car ahead.
 - **The no-overtaking invariant** — with a single lane per direction, cars never reorder within a lane, so the per-lane ordered list is only ever mutated at the back (entry) and front (exit). That is the subtle correctness core that keeps the network provably overlap-free without any sorting.
@@ -109,6 +112,8 @@ The architecture, the tick pipeline and every design decision are documented in 
 The hardest part was **correctness under a moving target** — keeping the network provably overlap-free _and_ deterministic while agents spawn, follow, cross junctions and despawn on every tick. The two-phase (read-all-then-write-all) update, the ballistic integrator's stop branch, and the per-lane ordered list (mutated only at its ends) are what make _no reversing, no overlap, bit-for-bit reproducible_ hold — properties I could only trust by unit-testing the pure core in isolation with fixed seeds.
 
 The second challenge was visual. Once the mesh became a live heat map, the individual vehicles started dissolving into the road glow — so the agents were lifted into their own luminance tier (a bright, dark-separated capsule with a near-white nose) to stay pickable at a glance without breaking the elegance of the system-level view.
+
+The third was turning determinism from a _correctness_ property into a _product_ one — from "the run reproduces" to "the model can decide." A single reproducible run is table stakes; the payoff is comparison. The controlled A/B uses it directly — baseline vs. change on two same-seed worlds for the same duration, so the only variable is the change — and the **optimizer** pushes it to the limit, sweeping every candidate intervention as its own controlled experiment and ranking them by throughput. The work was making that both honest and responsive: measure every candidate against **one shared baseline** (so ~50 fixes cost ~51 headless runs, not ~100), and drive the sweep in chunks off `setTimeout` so it streams live progress, never blocks the frame loop, and still finishes in a throttled background tab — where a `requestAnimationFrame` loop would stall.
 
 <br/>
 

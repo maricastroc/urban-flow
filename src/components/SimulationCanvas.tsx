@@ -18,6 +18,7 @@ import {
   type SelStats,
 } from './sim/types';
 import { TopBar } from './sim/TopBar';
+import { Telemetry } from './sim/Telemetry';
 import { type SparkHandle } from './sim/Sparkline';
 import { ControlDock } from './sim/ControlDock';
 import { Presets } from './sim/Presets';
@@ -397,9 +398,6 @@ export function SimulationCanvas() {
         hudFlow={hudFlow}
         hudSpeed={hudSpeed}
         hudTrips={hudTrips}
-        flowSpark={flowSparkRef}
-        speedSpark={speedSparkRef}
-        freeKmh={freeKmh}
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -428,6 +426,7 @@ export function SimulationCanvas() {
 
         <aside className="thin-scroll flex w-full shrink-0 flex-col gap-3 overflow-y-auto border-t border-(--border) p-3 lg:w-92 lg:border-l lg:border-t-0">
           <Inspector scene={scene} sel={sel} stats={selStats} bump={bump} onClear={() => select(NONE_SEL)} sinkLabelOf={sinkLabelOf} />
+          <Telemetry flowSpark={flowSparkRef} speedSpark={speedSparkRef} freeKmh={freeKmh} />
           <Presets onApply={applyPreset} />
           <Experiment
             result={expResult}

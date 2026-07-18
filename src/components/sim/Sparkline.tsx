@@ -8,12 +8,12 @@ export interface SparkHandle {
   reset(): void;
 }
 
-const W = 62;
-const H = 16;
 const CAP = 60;
 
-export const Sparkline = forwardRef<SparkHandle, { color: string; max?: number; className?: string }>(
-  function Sparkline({ color, max, className }, ref) {
+export const Sparkline = forwardRef<
+  SparkHandle,
+  { color: string; max?: number; className?: string; width?: number; height?: number }
+>(function Sparkline({ color, max, className, width = 76, height = 20 }, ref) {
     const gid = 'spark-' + useId().replace(/:/g, '');
     const series = useRef(createSeries(CAP));
     const areaRef = useRef<SVGPathElement>(null);
@@ -21,7 +21,7 @@ export const Sparkline = forwardRef<SparkHandle, { color: string; max?: number; 
     const dotRef = useRef<SVGCircleElement>(null);
 
     const draw = () => {
-      const g = sparkGeometry(series.current.values, { width: W, height: H, cap: CAP, max });
+      const g = sparkGeometry(series.current.values, { width, height, cap: CAP, max });
       lineRef.current?.setAttribute('points', g.line);
       areaRef.current?.setAttribute('d', g.area);
       const dot = dotRef.current;
@@ -44,7 +44,7 @@ export const Sparkline = forwardRef<SparkHandle, { color: string; max?: number; 
     }));
 
     return (
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className={className} aria-hidden>
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={className} aria-hidden>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor={color} stopOpacity="0.3" />
