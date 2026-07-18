@@ -196,8 +196,7 @@ function ImpactRow({
   const improved = Math.abs(delta) < 1e-6 ? null : (delta > 0) === (better === 'up');
   const tone = improved === null ? 'var(--text-3)' : improved ? 'var(--good)' : 'var(--bad)';
   const pct = Math.max(-1, Math.min(1, rel));
-  // display:contents lets each row's cells participate in the shared parent grid,
-  // so the value/arrow/delta columns line up vertically across both rows.
+
   return (
     <div className="contents">
       <span className="whitespace-nowrap pt-1.5 text-[12.5px] text-(--text-2)">{label}</span>

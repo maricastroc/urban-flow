@@ -276,8 +276,6 @@ export function SimulationCanvas({ scenarioParam = null }: { scenarioParam?: str
     sampleRef.current = { t: world.time, trips: world.metrics.completedTrips };
   }, []);
 
-  // Thin shell over the pure `hitTest`: read the canvas rect + the latest cars,
-  // hand the rest off as plain data.
   const hitTestAt = useCallback((clientX: number, clientY: number): Selection => {
     const canvas = canvasRef.current;
     if (!canvas) return NONE_SEL;

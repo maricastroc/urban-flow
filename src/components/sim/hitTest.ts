@@ -2,16 +2,12 @@ import { fitCamera, project, unproject, nearestLane, placementAt } from '@/rende
 import type { Scene } from '@/render/scene';
 import { NONE_SEL, type Selection } from './types';
 
-/** Pixel tolerances for resolving a click to a map entity. */
 export const LANE_TOL_M = 7;
 export const JUNCTION_TOL_PX = 15;
 export const CAR_TOL_PX = 11;
-// A junction is a fixed control the user deliberately aims at, so it wins over a
-// car unless the car is clearly the closer target — this many px closer. Without
-// it, cars crossing a junction always stole the click at busy intersections.
+
 export const JUNCTION_BIAS_PX = 4;
 
-/** The minimal car shape hit-testing needs (a superset of `RenderCar`). */
 export interface HitCar {
   readonly id: number;
   readonly key: number;
