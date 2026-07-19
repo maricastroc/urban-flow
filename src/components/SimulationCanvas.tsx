@@ -24,7 +24,7 @@ import {
   type SelStats,
   type InspectorActions,
 } from './sim/types';
-import { type SimMutation } from './sim/simProtocol';
+import { type SimMutation, WARMUP_TICKS } from './sim/simProtocol';
 import { TopBar } from './sim/TopBar';
 import { Telemetry } from './sim/Telemetry';
 import { type SparkHandle } from './sim/Sparkline';
@@ -35,7 +35,7 @@ import { Coach } from './sim/Coach';
 import { Inspector } from './sim/Inspector';
 import { Experiment } from './sim/Experiment';
 import { Optimizer } from './sim/Optimizer';
-import { WorkflowStep } from './sim/ui';
+import { WorkflowStep, PhaseLabel } from './sim/ui';
 import { hitTest } from './sim/hitTest';
 
 const SIM_DT = 0.2;
@@ -65,6 +65,16 @@ function mutationOfCandidate(c: Candidate): SimMutation | null {
 }
 
 function buildInitialScene(
+  scenarioParam: string | null | undefined,
+  grid: number | null,
+  cap: number | null,
+): Scene {
+  const scene = pickInitialScene(scenarioParam, grid, cap);
+  for (let i = 0; i < WARMUP_TICKS; i++) tick(scene.world);
+  return scene;
+}
+
+function pickInitialScene(
   scenarioParam: string | null | undefined,
   grid: number | null,
   cap: number | null,
@@ -764,7 +774,7 @@ export function SimulationCanvas({
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative h-[56dvh] min-h-0 shrink-0 lg:h-auto lg:flex-1">
+        <div className="anim-fade relative h-[56dvh] min-h-0 shrink-0 lg:h-auto lg:flex-1">
           <canvas
             ref={canvasRef}
             onClick={onCanvasClick}
@@ -794,6 +804,8 @@ export function SimulationCanvas({
               running={expRunning}
               waveResult={waveResult}
               singleSignalSpeedPct={demoContrastPct}
+              demoDemand={WAVE_PRESET.demandRate}
+              demoMinutes={Math.round(DEMO_TICKS / 300)}
               onStart={applyGuidedDemo}
               onRunAB={runExp}
               onEnterMetro={() => applyNetwork(SHOWCASE_NETWORK)}
@@ -811,15 +823,20 @@ export function SimulationCanvas({
 
         <aside className="thin-scroll flex w-full shrink-0 flex-col gap-3 border-t border-(--border) p-3 lg:min-h-0 lg:w-92 lg:overflow-y-auto lg:border-l lg:border-t-0">
           <NetworkPresets activeGrid={network.grid} onApply={applyNetwork} />
+
+          {/* Observe → Intervene → Measure → Optimize: the panel reads as one loop.
+              Observe is the continuous, passive phase (watch the live city); the
+              numbered steps below are the acting sequence. */}
+          <PhaseLabel>Observe</PhaseLabel>
           <Inspector scene={scene} sel={sel} stats={selStats} actions={actions} onClear={() => select(NONE_SEL)} sinkLabelOf={sinkLabelOf} pulseJunction={pulseJunction} />
           <Telemetry flowSpark={flowSparkRef} speedSpark={speedSparkRef} freeKmh={freeKmh} />
 
           {/* The experimentation workflow, threaded as ordered steps. */}
           <div className="flex flex-col">
-            <WorkflowStep n={1} first>
+            <WorkflowStep n={1} phase="Intervene" first>
               <Presets onApply={applyPreset} />
             </WorkflowStep>
-            <WorkflowStep n={2}>
+            <WorkflowStep n={2} phase="Measure">
               <Experiment
                 result={expResult}
                 running={expRunning}
@@ -831,7 +848,7 @@ export function SimulationCanvas({
                 highlight={stagedNeedsRun || (!coachDismissed && coachStep === 1)}
               />
             </WorkflowStep>
-            <WorkflowStep n={3} last>
+            <WorkflowStep n={3} phase="Optimize" last>
               <Optimizer
                 running={sweepRunning}
                 done={sweepProg.done}

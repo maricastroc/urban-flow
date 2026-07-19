@@ -789,6 +789,9 @@ synchronous** (~ms, not real-time) — it can afford the **5-minute** A/B that f
 under-credits it, §25). The single-signal contrast is a second headless `runExperiment` computed instantly when
 the demo starts. All deltas are read from the actual (deterministic) runs, so the copy is always truthful.
 Measured on the District at 1.2 over 5 min: green wave **+6% trips / +22% speed**, lone signal **+2% / −10%**.
+The result labels the single-signal number a **Reference** and spells out its conditions ("measured under
+identical demand — {demand} veh/s · {minutes} min, same seed", the values passed live from the demo params) so
+it reads as *measured*, not asserted — scientific-honesty framing, not a bare number.
 A deep-link (`?s=`) skips the demo (`coachDismissed` inits from `scenarioParam`); switching network or applying
 a preset dismisses it.
 
@@ -803,3 +806,33 @@ experimentation layer was hard-coded to the default grid:
   network (omitted on 5×5, so old links stay byte-identical); `decodeScenario` returns `grid`, and
   `buildInitialScene` rebuilds at it before replaying the overlay — so a run shared from the Metro reproduces the
   Metro, not a 5×5. Bounds-checked and unit-tested (non-default round-trip + malformed-grid → null).
+
+## 32. Final polish pass — perceived quality (Etapa 21)
+
+Nothing here is new capability; it's the last 10% that separates a strong portfolio project from a mature
+product. Each change is small, identity-preserving, and reversible.
+
+- **The city opens alive (`WARMUP_TICKS = 200`).** The sim used to boot from an empty grid and take ~50s to
+  fill — but first impressions form in ~2s, and in those 2s a "mobility engine" read as *off* (4 cars, 3 km/h,
+  0 trips). It now warms a fixed, deterministic ~40s before the first paint, so it opens mid-flow (~50 cars,
+  real HUD numbers). Applied **only on init**, in two places kept in lock-step from one shared constant
+  (`simProtocol.WARMUP_TICKS`): the worker warms its authoritative world, and `buildInitialScene` warms the
+  first-paint mirror to the *same* seed+count so there's no discontinuity when the first worker frame lands.
+  `reset` / preset / the guided demo deliberately **don't** warm — they're meant to start from a clean network.
+- **The map fades in on mount** (`anim-fade` on the canvas wrapper) — an entrance instead of a pop. Reduced-motion
+  safe.
+- **The Coach reads as an ephemeral hint, not a modal.** Softened from `border-strong` + `shadow-float` (the
+  heaviest surface treatment) to `border` + `shadow-panel` at 90% opacity — it floats lightly over the map
+  rather than sitting on it. Copy, positioning, and per-step element highlighting were already right (§31).
+- **No CTA pulses forever.** The Metro showcase card dropped its infinite `hint-ring`. A perpetually pulsing
+  call-to-action is the clearest "demo, not product" tell; the card stays prominent through its accent-soft
+  treatment + arrow, statically.
+- **The side panel reads as a loop, not a stack (Observe → Intervene → Measure → Optimize).** The three
+  experimentation cards already sat on a numbered thread (§ workflow); each node now names its phase verb
+  (Intervene / Measure / Optimize), and a lightweight `PhaseLabel` divider heads the continuous **Observe**
+  phase (Inspector + live telemetry). The eye is led down the sequence to the next action instead of scanning
+  equal-weight cards.
+
+*(Verified: the `Flow /min` HUD reading 0.0 in a backgrounded/automation tab is not a bug — it's the
+`jump > 5` guard zeroing a rate that's meaningless across a throttled-rAF gap. It reads correctly when the tab
+is focused.)*

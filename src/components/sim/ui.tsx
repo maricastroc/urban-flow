@@ -80,18 +80,36 @@ export function ActionButton({
 }
 
 /**
+ * A phase heading for the side panel's Observe → Intervene → Measure → Optimize
+ * narrative. Used for the continuous "Observe" phase (the numbered steps carry
+ * their own verb); a hairline runs off to the edge so it reads as a section lead,
+ * not a card.
+ */
+export function PhaseLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-1 flex items-center gap-2.5 px-0.5">
+      <span className="eyebrow text-(--text-2)">{children}</span>
+      <span className="h-px flex-1 bg-(--border)" />
+    </div>
+  );
+}
+
+/**
  * One rung of the experimentation workflow — a numbered node on a continuous left
  * thread, so Presets → A/B → Optimizer read as an ordered sequence, not three
- * loose cards. The thread is capped at the first/last node so it starts and ends
- * on a number rather than dangling.
+ * loose cards. Each node names its phase verb (Intervene / Measure / Optimize),
+ * completing the panel's Observe → … narrative. The thread is capped at the
+ * first/last node so it starts and ends on a number rather than dangling.
  */
 export function WorkflowStep({
   n,
+  phase,
   first,
   last,
   children,
 }: {
   n: number;
+  phase?: string;
   first?: boolean;
   last?: boolean;
   children: React.ReactNode;
@@ -102,13 +120,16 @@ export function WorkflowStep({
         <div
           aria-hidden
           className="absolute w-px bg-(--border-strong)"
-          style={{ top: first ? 28 : 0, bottom: last ? undefined : 0, height: last ? 28 : undefined }}
+          style={{ top: first ? 14 : 0, bottom: last ? undefined : 0, height: last ? 14 : undefined }}
         />
-        <div className="tnum relative z-10 mt-4 grid h-6 w-6 place-items-center rounded-full bg-(--accent-soft) text-[11px] font-bold text-(--accent-2) ring-1 ring-(--accent)/25">
+        <div className="tnum relative z-10 grid h-6 w-6 place-items-center rounded-full bg-(--accent-soft) text-[11px] font-bold text-(--accent-2) ring-1 ring-(--accent)/25">
           {n}
         </div>
       </div>
-      <div className={`min-w-0 flex-1 ${last ? '' : 'pb-3'}`}>{children}</div>
+      <div className={`min-w-0 flex-1 ${last ? '' : 'pb-3'}`}>
+        {phase && <div className="mb-1.5 flex h-6 items-center"><span className="eyebrow text-(--accent-2)">{phase}</span></div>}
+        {children}
+      </div>
     </div>
   );
 }

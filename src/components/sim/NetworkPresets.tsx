@@ -47,7 +47,7 @@ export function NetworkPresets({
       <button
         onClick={() => onApply(SHOWCASE_NETWORK)}
         aria-pressed={showcaseActive}
-        className={`hint-ring mt-2.5 flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3.5 py-3 text-left transition-all duration-150 ${
+        className={`mt-2.5 flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3.5 py-3 text-left transition-all duration-150 ${
           showcaseActive
             ? 'border-(--accent) bg-(--accent-soft)'
             : 'border-(--accent)/35 bg-(--accent-soft)/40 hover:border-(--accent) hover:bg-(--accent-soft)/70'

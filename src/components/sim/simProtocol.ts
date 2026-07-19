@@ -24,6 +24,12 @@ import type { Selection, SelStats } from './types';
  * `ScenarioConfig` so the main-thread mirror can never drift.
  */
 
+/** Deterministic warm-up applied once when the ambient sim first boots, so the
+ *  city opens mid-flow instead of an empty grid that takes ~50s to fill. Same
+ *  seed, fixed tick count — reproducible. Not applied on reset / preset / demo,
+ *  which intentionally start from a clean network. */
+export const WARMUP_TICKS = 200;
+
 export interface CarRouteRef {
   readonly lanes: number[];
   readonly idx: number;

@@ -3,7 +3,7 @@ import { createScene, applyConfig, captureConfig, type Scene, type ScenarioConfi
 import { packFrame } from '@/render/simFrame';
 import { carRoute } from '@/render/carTrace';
 import { computeSelStats, NONE_SEL, type Selection } from './types';
-import { applyCommand, packSignalPhase, type SimCommand, type SimEvent } from './simProtocol';
+import { applyCommand, packSignalPhase, WARMUP_TICKS, type SimCommand, type SimEvent } from './simProtocol';
 
 const DT = 0.2;
 const MAX_STEPS = 5;
@@ -73,6 +73,8 @@ ctx.onmessage = (e) => {
 
   if (m.type === 'init' || m.type === 'reset') {
     build(m.grid, m.capacity, m.demand, m.config);
+    // Boot the ambient city mid-flow so it never opens as an empty grid.
+    if (m.type === 'init' && scene) for (let i = 0; i < WARMUP_TICKS; i++) tick(scene.world);
     playing = m.type === 'init' ? (m.playing ?? true) : playing;
     speed = m.type === 'init' ? (m.speed ?? 1) : speed;
     acc = 0;

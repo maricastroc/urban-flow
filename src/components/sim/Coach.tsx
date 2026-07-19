@@ -4,8 +4,8 @@ function Shell({ children, onDismiss }: { children: React.ReactNode; onDismiss: 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center px-3">
       <div
-        className="anim-up pointer-events-auto flex max-w-118 items-start gap-3 rounded-xl border border-(--border-strong) bg-(--surface-1)/95 py-2.5 pl-3 pr-2.5 backdrop-blur-md"
-        style={{ boxShadow: 'var(--shadow-float)' }}
+        className="anim-up pointer-events-auto flex max-w-118 items-start gap-3 rounded-xl border border-(--border) bg-(--surface-1)/90 py-2.5 pl-3 pr-2.5 backdrop-blur-md"
+        style={{ boxShadow: 'var(--shadow-panel)' }}
       >
         {children}
         <button
@@ -50,6 +50,8 @@ export function Coach({
   running,
   waveResult,
   singleSignalSpeedPct,
+  demoDemand,
+  demoMinutes,
   onStart,
   onRunAB,
   onEnterMetro,
@@ -59,6 +61,10 @@ export function Coach({
   running: boolean;
   waveResult: WaveResult | null;
   singleSignalSpeedPct: number;
+  /** The demand + duration both runs shared — surfaced so the reference number reads
+   *  as measured, not asserted. */
+  demoDemand: number;
+  demoMinutes: number;
   onStart: () => void;
   onRunAB: () => void;
   onEnterMetro: () => void;
@@ -131,9 +137,15 @@ export function Coach({
             One signal {single >= 0 ? '+' : ''}{single}% speed
           </span>
         </div>
-        <div className="mt-1.5 text-[12px] leading-snug text-(--text-2)">
-          Same seed, same demand — the only difference is coordination. A lone signal adds stops where there
-          was flow; timing the whole corridor lets the platoon glide through
+        <div className="tnum mt-1.5 flex items-center gap-1.5 text-[10.5px] text-(--text-3)">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-(--text-2)">Reference</span>
+          <span>
+            single signal, measured under identical demand — {demoDemand} veh/s · {demoMinutes} min, same seed.
+          </span>
+        </div>
+        <div className="mt-2 text-[12px] leading-snug text-(--text-2)">
+          The only difference is coordination. A lone signal adds stops where there was flow; timing the whole
+          corridor lets the platoon glide through
           {wave ? ` (${wave.tripsPct >= 0 ? '+' : ''}${Math.round(wave.tripsPct)}% throughput too)` : ''}.
         </div>
         <div className="mt-2 flex items-center gap-2">
