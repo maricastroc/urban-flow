@@ -746,7 +746,11 @@ grows" — the SCALE-LEAP narrative made tangible.
 Mechanically it reuses everything: the live grid + capacity become React state (`network`), and a swap rebuilds
 the scene (`createScene(rate, {grid, capacity})`) exactly like a reset — in worker mode a `reset{grid, capacity,
 demand}` rebuilds the worker's world at the new scale (a fresh `epoch` drops interpolation; frames re-size to
-the new capacity, which `framesToCars` already derives from the buffer length). `reset` and the scenario presets
+the new capacity, which `framesToCars` already derives from the buffer length). **Frames carry their `grid`**,
+and the render loop draws worker state (cars + the selected car's route) **only when the frame's grid matches the
+current scene** — during a swap a stale frame from the *old* grid keeps arriving until the worker's reset
+republishes, and its lane ids would index the new (smaller) geometry out of range and crash the RAF loop; the
+guard skips it, and the matching frame lands within ~one tick. `reset` and the scenario presets
 now rebuild at the *current* network rather than the hard default, and `?grid=N&cap=M` still overrides the
 initial scale. The scenario presets stay grid-agnostic because their targets are geometry-derived
 (`centralJunction` etc.), so "Signalize the centre" works on a 3×3 or a 12×12 alike. Unit-tested: each preset

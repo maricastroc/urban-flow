@@ -28,6 +28,8 @@ function Shell({ children, onDismiss }: { children: React.ReactNode; onDismiss: 
 export function Coach({
   step,
   showcase,
+  networkLabel,
+  junctions,
   learningLabel,
   onSwitchToLearning,
   onDismiss,
@@ -35,12 +37,14 @@ export function Coach({
   step: number;
   /** On a large network (District / Metro), lead with the "you started big" welcome. */
   showcase: boolean;
+  networkLabel: string;
+  junctions: number;
   learningLabel: string;
   onSwitchToLearning: () => void;
   onDismiss: () => void;
 }) {
   // On the showcase scale, first orient the user and offer the calm sandbox — so the
-  // 144-junction city reads as impressive, not intimidating.
+  // large city reads as impressive, not intimidating.
   if (showcase && step === 0) {
     return (
       <Shell onDismiss={onDismiss}>
@@ -48,10 +52,10 @@ export function Coach({
           <IconGrid />
         </div>
         <div className="min-w-0">
-          <div className="text-[13px] font-semibold leading-tight">You&apos;re in the Metro — the full city.</div>
+          <div className="text-[13px] font-semibold leading-tight">You&apos;re on the {networkLabel} — the full city.</div>
           <div className="mt-0.5 text-[12px] leading-snug text-(--text-2)">
-            144 junctions, simulated off the main thread. Click anything to inspect it — or drop to the
-            calm <strong className="text-(--text-1)">{learningLabel}</strong> to learn the tools first.
+            {junctions} junctions, simulated off the main thread. Click anything to inspect it — or drop to
+            the calm <strong className="text-(--text-1)">{learningLabel}</strong> to learn the tools first.
           </div>
           <button
             onClick={onSwitchToLearning}

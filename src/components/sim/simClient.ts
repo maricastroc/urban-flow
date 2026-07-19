@@ -18,6 +18,9 @@ export interface SimFrames {
   readonly arrival: number;
   readonly speed: number;
   readonly sigPhase: number[];
+  /** The grid the current frame was packed at — the caller renders it only against
+   *  a matching scene, so a stale frame from a just-swapped network is skipped. */
+  readonly grid: number;
 }
 
 export interface SelectionMsg {
@@ -99,6 +102,7 @@ export function createSimClient(cfg: SimClientConfig): SimClient | null {
   let arrival = 0;
   let speed = cfg.speed;
   let sigPhase: number[] = [];
+  let curGrid = cfg.grid;
   let sel: SelectionMsg | null = null;
   let cmdId = 0;
   let controlCb: ((config: ScenarioConfig, kind: ControlKind) => void) | null = null;
@@ -116,6 +120,7 @@ export function createSimClient(cfg: SimClientConfig): SimClient | null {
         prev = m.epoch === curEpoch ? cur : null;
         cur = m.frame;
         curEpoch = m.epoch;
+        curGrid = m.grid;
         arrival = performance.now();
         sigPhase = m.sigPhase;
         break;
@@ -151,7 +156,7 @@ export function createSimClient(cfg: SimClientConfig): SimClient | null {
     setSelection: (s) => send({ type: 'setSelection', sel: s }),
     mutate,
     reset: (c) => send({ type: 'reset', grid: c.grid, capacity: c.capacity, demand: c.demand, config: c.config }),
-    frames: () => ({ prev, cur, arrival, speed, sigPhase }),
+    frames: () => ({ prev, cur, arrival, speed, sigPhase, grid: curGrid }),
     selection: () => sel,
     onControl: (cb) => {
       controlCb = cb;

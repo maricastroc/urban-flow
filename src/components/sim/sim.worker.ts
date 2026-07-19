@@ -31,7 +31,7 @@ function post(ev: SimEvent, transfer?: Transferable[]): void {
 function publishFrame(): void {
   if (!scene) return;
   const frame = packFrame(scene.world);
-  post({ type: 'frame', frame, epoch, revision, sigPhase: packSignalPhase(scene) }, [frame.buffer]);
+  post({ type: 'frame', frame, epoch, revision, grid: scene.grid, sigPhase: packSignalPhase(scene) }, [frame.buffer]);
 }
 
 function publishSelection(): void {

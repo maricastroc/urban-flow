@@ -8,7 +8,7 @@ import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventi
 import { framesToCars, frameStats } from '@/render/simFrame';
 import { createSimClient, type SimClient } from './sim/simClient';
 import { encodeScenario, decodeScenario, applyScenario, SCENARIO_PARAM } from '@/render/shareLink';
-import { type Preset, type NetworkPreset, DEFAULT_NETWORK, LEARNING_NETWORK, capacityForGrid } from '@/render/presets';
+import { type Preset, type NetworkPreset, NETWORKS, DEFAULT_NETWORK, LEARNING_NETWORK, capacityForGrid } from '@/render/presets';
 import { generateCandidates, type SweepRow, type Candidate } from '@/render/optimize';
 import { runSweepPool } from './sim/sweepPool';
 import { carRoute, isSelectedCarLive } from '@/render/carTrace';
@@ -549,10 +549,13 @@ export function SimulationCanvas({
       let tickMs = 0;
       let cars: RenderCar[];
       let st: Stats;
+      let clientGridOk = false;
       const client = simClientRef.current;
       if (client) {
         const fr = client.frames();
-        if (fr.cur) {
+
+        if (fr.cur && fr.grid === scene.grid) {
+          clientGridOk = true;
           const expected = (SIM_DT * 1000) / Math.max(fr.speed, 0.001);
           const alpha = Math.min((ts - fr.arrival) / expected, 1);
           cars = framesToCars(fr.prev, fr.cur, alpha, world.vparams, world.graph.speedLimit);
@@ -599,7 +602,7 @@ export function SimulationCanvas({
       let carRouteI = -1;
       if (cur.kind === 'car') {
         if (client) {
-          const route = client.selection()?.route;
+          const route = clientGridOk ? client.selection()?.route : null;
           if (route) {
             selCar = cur.id;
             carRouteLanes = route.lanes;
@@ -703,6 +706,7 @@ export function SimulationCanvas({
   const changed = scenarioChanged(scene);
   const sweepStale = !!sweepResult && scenarioSignature(scene) !== sweepResult.sig;
   const coachStep = !changed ? 0 : !expResult ? 1 : 2;
+  const activeNetwork = NETWORKS.find((n) => n.grid === network.grid);
 
   return (
     <div className="flex min-h-dvh flex-col bg-(--bg) text-(--text-1) lg:h-dvh">
@@ -743,6 +747,8 @@ export function SimulationCanvas({
             <Coach
               step={coachStep}
               showcase={network.grid > LEARNING_NETWORK.grid}
+              networkLabel={activeNetwork?.label ?? `${network.grid}×${network.grid}`}
+              junctions={activeNetwork?.junctions ?? network.grid * network.grid}
               learningLabel={LEARNING_NETWORK.label}
               onSwitchToLearning={() => applyNetwork(LEARNING_NETWORK)}
               onDismiss={() => setCoachDismissed(true)}
