@@ -4,11 +4,11 @@ import 'react-tooltip/dist/react-tooltip.css';
 import { Tooltip } from 'react-tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tick, setSignalPhase } from '@/engine';
-import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, captureConfig, scenarioSignature, applyControlSnapshot, toggleLaneClosed, toggleIncident, toggleSignal, flipPriority, setSourceRate, toggleDestination, DEFAULT_GRID, DEFAULT_CAPACITY, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
+import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, captureConfig, scenarioSignature, applyControlSnapshot, toggleLaneClosed, toggleIncident, toggleSignal, flipPriority, setSourceRate, toggleDestination, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
 import { framesToCars, frameStats } from '@/render/simFrame';
 import { createSimClient, type SimClient } from './sim/simClient';
 import { encodeScenario, decodeScenario, applyScenario, SCENARIO_PARAM } from '@/render/shareLink';
-import { type Preset, type NetworkPreset } from '@/render/presets';
+import { type Preset, type NetworkPreset, DEFAULT_NETWORK, LEARNING_NETWORK, capacityForGrid } from '@/render/presets';
 import { generateCandidates, type SweepRow, type Candidate } from '@/render/optimize';
 import { runSweepPool } from './sim/sweepPool';
 import { carRoute, isSelectedCarLive } from '@/render/carTrace';
@@ -63,16 +63,28 @@ function buildInitialScene(
   grid: number | null,
   cap: number | null,
 ): Scene {
+
   if (grid != null && grid >= 2) {
+    const g = Math.floor(grid);
     return createScene(unitsToRate(DEFAULT_DEMAND), {
-      grid: Math.floor(grid),
-      capacity: cap != null && cap > 0 ? Math.floor(cap) : undefined,
+      grid: g,
+      capacity: cap != null && cap > 0 ? Math.floor(cap) : capacityForGrid(g),
     });
   }
-  const scene = createScene(unitsToRate(DEFAULT_DEMAND));
+
   const parsed = scenarioParam ? decodeScenario(scenarioParam) : null;
-  if (parsed) applyScenario(scene, parsed);
-  return scene;
+  if (parsed) {
+    const scene = createScene(unitsToRate(DEFAULT_DEMAND), {
+      grid: parsed.grid,
+      capacity: capacityForGrid(parsed.grid),
+    });
+    applyScenario(scene, parsed);
+    return scene;
+  }
+  return createScene(DEFAULT_NETWORK.demandRate, {
+    grid: DEFAULT_NETWORK.grid,
+    capacity: DEFAULT_NETWORK.capacity,
+  });
 }
 
 function demandUnitsOf(scene: Scene): number {
@@ -150,7 +162,7 @@ export function SimulationCanvas({
   const [stagedNeedsRun, setStagedNeedsRun] = useState(false);
 
   const [network, setNetwork] = useState(() => ({
-    grid: grid ?? DEFAULT_GRID,
+    grid: scene.grid,
     capacity: scene.world.agents.capacity,
   }));
   const demandSkip = useRef(true);
@@ -485,8 +497,8 @@ export function SimulationCanvas({
 
     if (worker) {
       const client = createSimClient({
-        grid: grid ?? DEFAULT_GRID,
-        capacity: cap ?? DEFAULT_CAPACITY,
+        grid: sceneRef.current.grid,
+        capacity: sceneRef.current.world.agents.capacity,
         demand: unitsToRate(DEFAULT_DEMAND),
         speed: speedRef.current,
         playing: playingRef.current,
@@ -727,7 +739,15 @@ export function SimulationCanvas({
             clockRef={hudClock}
           />
 
-          {!coachDismissed && coachStep < 2 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
+          {!coachDismissed && coachStep < 2 && (
+            <Coach
+              step={coachStep}
+              showcase={network.grid > LEARNING_NETWORK.grid}
+              learningLabel={LEARNING_NETWORK.label}
+              onSwitchToLearning={() => applyNetwork(LEARNING_NETWORK)}
+              onDismiss={() => setCoachDismissed(true)}
+            />
+          )}
 
           {debug && (
             <div

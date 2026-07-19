@@ -749,6 +749,27 @@ demand}` rebuilds the worker's world at the new scale (a fresh `epoch` drops int
 the new capacity, which `framesToCars` already derives from the buffer length). `reset` and the scenario presets
 now rebuild at the *current* network rather than the hard default, and `?grid=N&cap=M` still overrides the
 initial scale. The scenario presets stay grid-agnostic because their targets are geometry-derived
-(`centralJunction` etc.), so "Signalize the centre" works on a 3×3 or a 12×12 alike. Share-links still assume the
-fixed default grid (§24), so a network swap clears the `?s=` param. Unit-tested: each preset builds `grid²`
-junctions at its capacity, the store never overflows under its own demand, and each scale is deterministic.
+(`centralJunction` etc.), so "Signalize the centre" works on a 3×3 or a 12×12 alike. Unit-tested: each preset
+builds `grid²` junctions at its capacity, the store never overflows under its own demand, and each scale is
+deterministic.
+
+**The Metro is the default; the City block is the sandbox (product positioning).** As the portfolio flagship,
+the app opens on the **Metro (12×12, 144 junctions)** so the first ten seconds read as a real off-thread city,
+not a toy — `buildInitialScene` defaults to `DEFAULT_NETWORK` (the metro preset). The **City block (5×5)** is
+tagged the learning **sandbox**: the network card badges each (`tag: 'showcase' | 'sandbox'`), and the Coach
+leads on a large grid with a "You're in the Metro" welcome + a one-click **Switch to City block** (dropping to
+`LEARNING_NETWORK`), then falls back to the normal *stage → A/B* stepper once you're on the calm grid — so the
+scale impresses without intimidating. `DEFAULT_GRID`/`DEFAULT_CAPACITY` in the engine stay 5×5 (the baseline for
+tests and the headless comparison grid); only the *app's* opening network changed.
+
+**Two correctness fixes this forced.** Making a non-5×5 grid the default surfaced that the headless
+experimentation layer was hard-coded to the default grid:
+- **A/B + optimizer at any scale.** `ScenarioConfig` now carries `grid` + `capacity` (from a new `Scene.grid`),
+  and the headless replays (`runExperiment`, `optimize.runJob`) build `createScene(0, {grid, capacity})` from it
+  — previously `createScene(0)` always rebuilt a 5×5, so on the Metro the A/B mis-measured and the optimizer
+  *crashed* (a candidate at junction 143 applied to a 25-junction world). Verified live: a 312-candidate sweep
+  and a controlled A/B both run correctly on the 12×12.
+- **Share-links carry the grid (§24 extended).** `encodeScenario` emits an `n<grid>` field for a non-default
+  network (omitted on 5×5, so old links stay byte-identical); `decodeScenario` returns `grid`, and
+  `buildInitialScene` rebuilds at it before replaying the overlay — so a run shared from the Metro reproduces the
+  Metro, not a 5×5. Bounds-checked and unit-tested (non-default round-trip + malformed-grid → null).

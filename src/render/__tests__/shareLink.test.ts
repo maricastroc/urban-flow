@@ -142,6 +142,7 @@ describe('shareLink — scenario serialization', () => {
     const before = scenarioSignature(scene);
 
     applyScenario(scene, {
+      grid: 5,
       rates: [0.4],
       destinations: [],
       closed: [99999],
@@ -150,5 +151,34 @@ describe('shareLink — scenario serialization', () => {
       signals: [99999],
     });
     expect(scenarioSignature(scene)).toBe(before);
+  });
+});
+
+describe('shareLink — network grid', () => {
+  it('omits the network field on the default grid (links stay backward-compatible)', () => {
+    const raw = encodeScenario(createScene(0.4));
+    expect(raw.includes('~n')).toBe(false);
+    expect(decodeScenario(raw)!.grid).toBe(5);
+  });
+
+  it('encodes a non-default grid and round-trips a scenario on it', () => {
+    const scene = createScene(0.4, { grid: 8, capacity: 800 });
+    toggleSignal(scene, 10);
+    toggleLaneClosed(scene, scene.junctions[20].approaches.find((a) => a.fromLane >= 0)!.fromLane);
+
+    const raw = encodeScenario(scene);
+    expect(raw.includes('n8')).toBe(true);
+
+    const decoded = decodeScenario(raw)!;
+    expect(decoded.grid).toBe(8);
+
+    const fresh = createScene(0, { grid: decoded.grid, capacity: 800 });
+    applyScenario(fresh, decoded);
+    expect(scenarioSignature(fresh)).toBe(scenarioSignature(scene));
+  });
+
+  it('a malformed network field decodes to null', () => {
+    expect(decodeScenario('1~nx~d4')).toBeNull();
+    expect(decodeScenario('1~n1~d4')).toBeNull(); // grid < 2
   });
 });

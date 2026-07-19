@@ -1,10 +1,12 @@
-import { toggleLaneClosed, toggleSignal, greenWave, type Scene } from './scene';
+import { toggleLaneClosed, toggleSignal, greenWave, DEFAULT_CAPACITY, type Scene } from './scene';
 
 /**
  * Network presets (§30): the same deterministic engine at different scales — a
  * one-click swap of the whole Manhattan grid (rows = cols). Each carries a matched
  * agent-store `capacity` so a denser grid has headroom; demand is held constant so
- * the user reads how the *same* load behaves as the network grows.
+ * the user reads how the *same* load behaves as the network grows. The **Metro** is
+ * the app's default hero (`tag: 'showcase'`); the **City block** is the calm learning
+ * sandbox (`tag: 'sandbox'`).
  */
 export interface NetworkPreset {
   readonly id: string;
@@ -14,16 +16,27 @@ export interface NetworkPreset {
   readonly junctions: number;
   readonly capacity: number;
   readonly demandRate: number;
+  readonly tag?: 'showcase' | 'sandbox';
 }
 
 const NETWORK_DEMAND = 0.4;
 
 export const NETWORKS: NetworkPreset[] = [
-  { id: 'toy', label: 'Toy', desc: '3×3 — read one junction at a time.', grid: 3, junctions: 9, capacity: 96, demandRate: NETWORK_DEMAND },
-  { id: 'block', label: 'City block', desc: '5×5 — the default, legible network.', grid: 5, junctions: 25, capacity: 256, demandRate: NETWORK_DEMAND },
+  { id: 'toy', label: 'Toy', desc: '3×3 — one junction at a time.', grid: 3, junctions: 9, capacity: 96, demandRate: NETWORK_DEMAND },
+  { id: 'block', label: 'City block', desc: 'Calm 5×5 — best for learning the tools.', grid: 5, junctions: 25, capacity: 256, demandRate: NETWORK_DEMAND, tag: 'sandbox' },
   { id: 'district', label: 'District', desc: '8×8 — corridors and reroutes emerge.', grid: 8, junctions: 64, capacity: 800, demandRate: NETWORK_DEMAND },
-  { id: 'metro', label: 'Metro', desc: '12×12 — the engine at city scale.', grid: 12, junctions: 144, capacity: 2000, demandRate: NETWORK_DEMAND },
+  { id: 'metro', label: 'Metro', desc: '12×12 — the full city, off-thread at scale.', grid: 12, junctions: 144, capacity: 2000, demandRate: NETWORK_DEMAND, tag: 'showcase' },
 ];
+
+/** The app's default network on load — the Metro, as the portfolio showcase. */
+export const DEFAULT_NETWORK: NetworkPreset = NETWORKS.find((n) => n.id === 'metro')!;
+/** The recommended learning sandbox — a calm, legible 5×5. */
+export const LEARNING_NETWORK: NetworkPreset = NETWORKS.find((n) => n.id === 'block')!;
+
+/** The agent-store capacity a given grid should use (falls back to the engine default). */
+export function capacityForGrid(grid: number): number {
+  return NETWORKS.find((n) => n.grid === grid)?.capacity ?? DEFAULT_CAPACITY;
+}
 
 export interface Preset {
   readonly id: string;

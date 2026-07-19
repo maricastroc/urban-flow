@@ -109,7 +109,7 @@ export interface SweepJobResult {
 }
 
 export function runJob(cfg: ScenarioConfig, spec: CandidateSpec | null, ticks: number): Stats {
-  const w = createScene(0);
+  const w = createScene(0, { grid: cfg.grid, capacity: cfg.capacity });
   applyConfig(w, cfg, true);
   if (spec) applyCandidate(w, spec);
   for (let n = 0; n < ticks; n++) tick(w.world);

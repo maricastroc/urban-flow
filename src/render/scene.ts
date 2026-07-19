@@ -49,6 +49,8 @@ export interface Scene {
   readonly corridors: Corridor[];
   /** Per-corridor green-wave cycle seconds, or 0 when the corridor is uncoordinated. */
   readonly coordinated: number[];
+  /** The grid dimension this scene was built at (rows = cols). */
+  readonly grid: number;
 }
 
 export function createScene(rate: number, opts: SceneOptions = {}): Scene {
@@ -77,6 +79,7 @@ export function createScene(rate: number, opts: SceneOptions = {}): Scene {
     signals: junctions.map(() => null),
     corridors,
     coordinated: corridors.map(() => 0),
+    grid,
   };
   applyRoutes(scene);
   return scene;
@@ -339,6 +342,10 @@ export interface ExperimentResult {
 }
 
 export interface ScenarioConfig {
+  /** The grid + capacity the config was captured at, so headless replays (A/B,
+   *  optimizer) rebuild the *same* network — not the hard default. */
+  grid: number;
+  capacity: number;
   rates: number[];
   allowed: Set<number>[];
   laneClosed: Uint8Array;
@@ -369,6 +376,8 @@ export function captureConfig(scene: Scene): ScenarioConfig {
     if (secs > 0) for (const j of scene.corridors[i].junctions) coordJct.add(j);
   });
   return {
+    grid: scene.grid,
+    capacity: scene.world.agents.capacity,
     rates: scene.sources.map((s) => s.rate),
     allowed: scene.sources.map((s) => new Set(s.allowed)),
     laneClosed: c.laneClosed.slice(),
@@ -411,12 +420,13 @@ export function applyConfig(scene: Scene, cfg: ScenarioConfig, withIntervention:
 
 export function runExperiment(scene: Scene, durationTicks: number): ExperimentResult {
   const cfg = captureConfig(scene);
+  const opts = { grid: cfg.grid, capacity: cfg.capacity };
 
-  const a = createScene(0);
+  const a = createScene(0, opts);
   applyConfig(a, cfg, false);
   for (let n = 0; n < durationTicks; n++) tick(a.world);
 
-  const b = createScene(0);
+  const b = createScene(0, opts);
   applyConfig(b, cfg, true);
   for (let n = 0; n < durationTicks; n++) tick(b.world);
 

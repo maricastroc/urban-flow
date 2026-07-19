@@ -2,6 +2,19 @@ import { NETWORKS, type NetworkPreset } from '@/render/presets';
 import { CARD } from './ui';
 import { IconGrid } from './icons';
 
+function TagPill({ tag }: { tag: NonNullable<NetworkPreset['tag']> }) {
+  const showcase = tag === 'showcase';
+  return (
+    <span
+      className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+        showcase ? 'bg-(--accent-soft) text-(--accent-2)' : 'bg-(--surface-3) text-(--text-2)'
+      }`}
+    >
+      {showcase ? 'Showcase' : 'Sandbox'}
+    </span>
+  );
+}
+
 export function NetworkPresets({
   activeGrid,
   onApply,
@@ -35,14 +48,18 @@ export function NetworkPresets({
                 </span>
                 <span className="tnum text-[10px] text-(--text-3)">{n.grid}×{n.grid}</span>
               </div>
-              <div className="tnum text-[10.5px] text-(--text-3)">{n.junctions} junctions</div>
+              <div className="mt-0.5 flex items-center justify-between gap-1">
+                <span className="tnum text-[10.5px] text-(--text-3)">{n.junctions} junctions</span>
+                {n.tag && <TagPill tag={n.tag} />}
+              </div>
             </button>
           );
         })}
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-(--text-3)">
-        Swap the whole grid — same seed, same engine, more city. Demand holds so you read how scale
-        alone changes the flow.
+        You start in the <strong className="text-(--text-2)">Metro</strong> — the full city, off the main
+        thread. New here? Drop to the <strong className="text-(--text-2)">City block</strong> sandbox to
+        learn the tools. Same seed, same engine — only the scale changes.
       </p>
     </section>
   );

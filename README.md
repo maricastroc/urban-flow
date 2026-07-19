@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  Not a video of traffic — a live system. A pure, seeded simulation core (bit-for-bit reproducible) drives a hybrid Canvas 2D + WebGL visualization where roads, junctions and vehicles all speak one thermal language: <strong>cool = flowing, hot = congested</strong>.
+  Not a video of traffic — a live system. It opens on a full <strong>12×12 metro</strong> simulated <strong>off the main thread</strong> in a Web Worker, where a pure, seeded core (bit-for-bit reproducible) drives a hybrid Canvas 2D + WebGL visualization and roads, junctions and vehicles all speak one thermal language: <strong>cool = flowing, hot = congested</strong>. New here? One click drops to a calm 5×5 sandbox to learn the tools.
 </p>
 
 <p align="center">
@@ -53,7 +53,7 @@
 | **📈 Live metrics**          | A top-bar HUD with rolling **sparklines** for throughput and speed, so the network's dynamics read over time — not just as a single number.                                                                                 |
 | **🖥️ Built to scale**        | The agent layer renders through **WebGL2 instancing** — one draw call for the whole fleet — over the Canvas 2D thermal map, cutting the frame's render cost ~10× at scale. The plain-data core is what lets both the renderer and the optimizer's worker pool consume it directly.                                                                     |
 | **🧵 Off-main-thread engine** | The live simulation runs in a **Web Worker** — the UI can never block it, and it keeps advancing even in a backgrounded tab (worker timers aren't `requestAnimationFrame`-throttled). Every experiment crosses the boundary as a **typed, confirmed command**; the main thread renders only the state the worker confirms, so there is no second simulation to drift. |
-| **🗺️ Pick your scale**       | Swap the whole grid in one click — a **3×3 toy up to a 12×12 metro** (144 junctions) — same seed, same engine, so you read how scale _alone_ bends the flow.                                                                 |
+| **🗺️ Pick your scale**       | Opens on the **12×12 metro** (144 junctions) — the engine at city scale — with a one-click drop to a calm **5×5 sandbox** to learn the tools. Swap the whole grid any time; same seed, same engine, so you read how scale _alone_ bends the flow. |
 | **♻️ Deterministic & tested** | Same world + same seed → identical run, bit for bit. The pure engine (IDM, routing, give-way, signals) — and the worker command protocol — are fully unit-tested with Vitest.                                               |
 
 <br/>

@@ -5,6 +5,7 @@ import {
   toggleSignal,
   greenWave,
   applyRoutes,
+  DEFAULT_GRID,
   type Scene,
 } from './scene';
 
@@ -22,9 +23,10 @@ import {
  * RFC-3986 unreserved characters — no percent-encoding needed):
  *
  *   payload := "1" ("~" field)*
- *   field   := key body            key ∈ {d,x,c,i,f,g,w}
+ *   field   := key body            key ∈ {n,d,x,c,i,f,g,w}
  *   body    := item ("." item)*
  *
+ *   n  network    grid dimension, emitted only when ≠ the default grid
  *   d  demand     one int (uniform) OR one per source, as round(rate*10)
  *   x  dests      per source: "<src>_<sink>-<sink>…" (disabled destinations only)
  *   c  closed     lane ids
@@ -43,6 +45,8 @@ export const SCENARIO_PARAM = 's';
 const VERSION = '1';
 
 export interface SharedScenario {
+  /** The grid the scenario was built on (defaults to `DEFAULT_GRID` when absent). */
+  readonly grid: number;
   /** Per-source demand rate. A single element means uniform across all sources. */
   readonly rates: number[];
   /** Per-source destinations removed from the default "all reachable" set. */
@@ -69,6 +73,9 @@ export function encodeScenario(scene: Scene): string {
   const control = scene.world.control;
   const conns = scene.world.graph.connections;
   const parts: string[] = [VERSION];
+
+  // Emitted only for a non-default network, so 5×5 links stay byte-identical.
+  if (scene.grid !== DEFAULT_GRID) parts.push('n' + scene.grid);
 
   const rates = scene.sources.map((s) => Math.round(s.rate * 10));
   const uniform = rates.every((r) => r === rates[0]);
@@ -123,6 +130,7 @@ export function decodeScenario(raw: string | null | undefined): SharedScenario |
   const parts = raw.split('~');
   if (parts[0] !== VERSION) return null;
 
+  let grid = DEFAULT_GRID;
   const rates: number[] = [];
   const destinations: { src: number; disabled: number[] }[] = [];
   const closed: number[] = [];
@@ -137,7 +145,10 @@ export function decodeScenario(raw: string | null | undefined): SharedScenario |
       if (!field) continue;
       const key = field[0];
       const items = field.slice(1).split('.').filter(Boolean);
-      if (key === 'd') {
+      if (key === 'n') {
+        grid = posInt(items[0]);
+        if (grid < 2) throw new Error('bad grid');
+      } else if (key === 'd') {
         for (const v of items) rates.push(posInt(v) / 10);
       } else if (key === 'x') {
         for (const g of items) {
@@ -166,7 +177,7 @@ export function decodeScenario(raw: string | null | undefined): SharedScenario |
     return null;
   }
 
-  return { rates, destinations, closed, incidents, flips, signals, coordinated };
+  return { grid, rates, destinations, closed, incidents, flips, signals, coordinated };
 }
 
 /**
