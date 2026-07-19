@@ -3,8 +3,8 @@
 import 'react-tooltip/dist/react-tooltip.css';
 import { Tooltip } from 'react-tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { tick } from '@/engine';
-import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, captureConfig, scenarioSignature, DEFAULT_GRID, DEFAULT_CAPACITY, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
+import { tick, setSignalPhase } from '@/engine';
+import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, captureConfig, scenarioSignature, applyControlSnapshot, toggleLaneClosed, toggleIncident, toggleSignal, flipPriority, setSourceRate, toggleDestination, DEFAULT_GRID, DEFAULT_CAPACITY, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
 import { framesToCars, frameStats } from '@/render/simFrame';
 import { createSimClient, type SimClient } from './sim/simClient';
 import { encodeScenario, decodeScenario, applyScenario, SCENARIO_PARAM } from '@/render/shareLink';
@@ -22,7 +22,9 @@ import {
   NONE_SEL,
   type Selection,
   type SelStats,
+  type InspectorActions,
 } from './sim/types';
+import { type SimMutation } from './sim/simProtocol';
 import { TopBar } from './sim/TopBar';
 import { Telemetry } from './sim/Telemetry';
 import { type SparkHandle } from './sim/Sparkline';
@@ -46,6 +48,14 @@ const fmtClock = (sec: number) => {
 };
 const EMPTY_ROUTE: number[] = [];
 const SWEEP_TICKS = 300;
+
+/** Map an optimizer candidate to its equivalent worker command. */
+function mutationOfCandidate(c: Candidate): SimMutation | null {
+  if (c.kind === 'signal') return { type: 'addSignals', junction: c.junction };
+  if (c.kind === 'priority') return { type: 'flipPriority', junction: c.junction };
+  if (c.kind === 'greenwave' && c.corridor !== undefined) return { type: 'greenWave', corridor: c.corridor };
+  return null;
+}
 
 function buildInitialScene(
   scenarioParam: string | null | undefined,
@@ -85,6 +95,7 @@ export function SimulationCanvas({
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
   const sweepingRef = useRef(false);
   const simClientRef = useRef<SimClient | null>(null);
+  const stagePendingRef = useRef(false);
 
 
   const [scene, setSceneState] = useState<Scene>(() => buildInitialScene(scenarioParam, grid, cap));
@@ -155,8 +166,9 @@ export function SimulationCanvas({
       demandSkip.current = false;
       return;
     }
-    setDemandRate(sceneRef.current, unitsToRate(demand));
-    simClientRef.current?.setDemand(unitsToRate(demand));
+    const c = simClientRef.current;
+    if (c) c.setDemand(unitsToRate(demand));
+    else setDemandRate(sceneRef.current, unitsToRate(demand));
   }, [demand]);
 
   useEffect(() => {
@@ -178,13 +190,23 @@ export function SimulationCanvas({
 
   const select = useCallback((next: Selection) => {
     setSel(next);
-    setSelStats(next.kind === 'none' ? null : computeSelStats(sceneRef.current, next));
+    const c = simClientRef.current;
+    if (c) {
+      c.setSelection(next);
+      setSelStats(null);
+    } else {
+      setSelStats(next.kind === 'none' ? null : computeSelStats(sceneRef.current, next));
+    }
   }, []);
 
   useEffect(() => {
     if (sel.kind === 'none') return;
     const id = window.setInterval(() => {
-      const st = computeSelStats(sceneRef.current, selRef.current);
+      const c = simClientRef.current;
+      const st = c
+        ? (c.selection()?.stats ?? null)
+        : computeSelStats(sceneRef.current, selRef.current);
+
       if (st === null && selRef.current.kind === 'car') {
         setSel(NONE_SEL);
         setSelStats(null);
@@ -200,19 +222,35 @@ export function SimulationCanvas({
   }, []);
 
   const reset = useCallback(() => {
-    setSceneState(createScene(unitsToRate(demand)));
+    const fresh = createScene(unitsToRate(demand), { grid: grid ?? DEFAULT_GRID, capacity: cap ?? DEFAULT_CAPACITY });
+    setSceneState(fresh);
+    simClientRef.current?.reset({
+      grid: grid ?? DEFAULT_GRID,
+      capacity: cap ?? DEFAULT_CAPACITY,
+      demand: unitsToRate(demand),
+      speed: speedRef.current,
+      playing: playingRef.current,
+    });
     setSel(NONE_SEL);
     setSelStats(null);
     setExpResult(null);
     setSweepResult(null);
     setStagedNeedsRun(false);
     clearShareUrl();
-  }, [demand, clearShareUrl]);
+  }, [demand, clearShareUrl, grid, cap]);
 
   const applyPreset = useCallback((preset: Preset) => {
-    const staged = createScene(preset.demandRate);
+    const staged = createScene(preset.demandRate, { grid: grid ?? DEFAULT_GRID, capacity: cap ?? DEFAULT_CAPACITY });
     preset.stage?.(staged);
     setSceneState(staged);
+    simClientRef.current?.reset({
+      grid: grid ?? DEFAULT_GRID,
+      capacity: cap ?? DEFAULT_CAPACITY,
+      demand: preset.demandRate,
+      speed: speedRef.current,
+      playing: playingRef.current,
+      config: captureConfig(staged),
+    });
     setDemand(Math.round(preset.demandRate * 10));
     setSel(NONE_SEL);
     setSelStats(null);
@@ -220,7 +258,7 @@ export function SimulationCanvas({
     setSweepResult(null);
     setStagedNeedsRun(false);
     clearShareUrl();
-  }, [clearShareUrl]);
+  }, [clearShareUrl, grid, cap]);
 
   const share = useCallback(() => {
     const url = `${window.location.origin}${window.location.pathname}?${SCENARIO_PARAM}=${encodeScenario(sceneRef.current)}`;
@@ -240,10 +278,14 @@ export function SimulationCanvas({
   }, [expDuration]);
 
   const clearStaged = useCallback(() => {
-    clearInterventions(sceneRef.current);
+    const c = simClientRef.current;
+    if (c) c.mutate({ type: 'clearInterventions' });
+    else {
+      clearInterventions(sceneRef.current);
+      bump();
+    }
     setExpResult(null);
     setStagedNeedsRun(false);
-    bump();
   }, [bump]);
 
   const runSweep = useCallback(() => {
@@ -267,12 +309,21 @@ export function SimulationCanvas({
 
   const stageCandidate = useCallback(
     (c: Candidate) => {
-      c.apply(sceneRef.current);
+      const client = simClientRef.current;
+      if (client) {
+        const m = mutationOfCandidate(c);
+        if (m) {
+          stagePendingRef.current = true;
+          client.mutate(m);
+        }
+      } else {
+        c.apply(sceneRef.current);
+        setSweepResult((r) => (r ? { ...r, sig: scenarioSignature(sceneRef.current) } : r));
+        bump();
+      }
       stagedRef.current = { junction: c.junction, at: performance.now() };
       select({ kind: 'junction', j: c.junction });
-      setSweepResult((r) => (r ? { ...r, sig: scenarioSignature(sceneRef.current) } : r));
       setStagedNeedsRun(true);
-      bump();
     },
     [select, bump],
   );
@@ -280,6 +331,66 @@ export function SimulationCanvas({
   const pulseJunction = useCallback((j: number) => {
     stagedRef.current = { junction: j, at: performance.now() };
   }, []);
+
+  const actions: InspectorActions = useMemo(
+    () => ({
+      toggleClose: (lane, closed) => {
+        const c = simClientRef.current;
+        if (c) c.mutate(closed ? { type: 'reopenRoad', lane } : { type: 'closeRoad', lane });
+        else {
+          toggleLaneClosed(sceneRef.current, lane);
+          bump();
+        }
+      },
+      toggleIncident: (lane, s, has) => {
+        const c = simClientRef.current;
+        if (c) c.mutate(has ? { type: 'removeIncident', lane } : { type: 'addIncident', lane, s });
+        else {
+          toggleIncident(sceneRef.current, lane, s);
+          bump();
+        }
+      },
+      toggleSignal: (j, on) => {
+        const c = simClientRef.current;
+        if (c) c.mutate(on ? { type: 'removeSignals', junction: j } : { type: 'addSignals', junction: j });
+        else {
+          toggleSignal(sceneRef.current, j);
+          bump();
+        }
+      },
+      flipPriority: (j) => {
+        const c = simClientRef.current;
+        if (c) c.mutate({ type: 'flipPriority', junction: j });
+        else {
+          flipPriority(sceneRef.current, j);
+          bump();
+        }
+      },
+      setSourceRate: (lane, rate) => {
+        const c = simClientRef.current;
+        if (c) c.setSourceRate(lane, rate);
+        else {
+          const ctl = sceneRef.current.sources.find((s) => s.lane === lane);
+          if (ctl) {
+            setSourceRate(sceneRef.current, ctl, rate);
+            bump();
+          }
+        }
+      },
+      toggleDestination: (lane, sink) => {
+        const c = simClientRef.current;
+        if (c) c.mutate({ type: 'toggleDestination', lane, sink });
+        else {
+          const ctl = sceneRef.current.sources.find((s) => s.lane === lane);
+          if (ctl) {
+            toggleDestination(sceneRef.current, ctl, sink);
+            bump();
+          }
+        }
+      },
+    }),
+    [bump],
+  );
 
   const isCandidateStaged = useCallback((c: Candidate) => {
     const scene = sceneRef.current;
@@ -293,6 +404,11 @@ export function SimulationCanvas({
   }, []);
 
   const fastForward = useCallback(() => {
+    const c = simClientRef.current;
+    if (c) {
+      c.fastForward(300);
+      return;
+    }
     const world = sceneRef.current.world;
     for (let i = 0; i < 300; i++) tick(world);
     prevSRef.current.set(world.agents.s);
@@ -342,13 +458,23 @@ export function SimulationCanvas({
     let packBuf: Float32Array | undefined;
 
     if (worker) {
-      simClientRef.current = createSimClient({
+      const client = createSimClient({
         grid: grid ?? DEFAULT_GRID,
         capacity: cap ?? DEFAULT_CAPACITY,
         demand: unitsToRate(DEFAULT_DEMAND),
         speed: speedRef.current,
         playing: playingRef.current,
+        config: captureConfig(sceneRef.current),
       });
+      client?.onControl((config) => {
+        applyControlSnapshot(sceneRef.current, config);
+        if (stagePendingRef.current) {
+          stagePendingRef.current = false;
+          setSweepResult((r) => (r ? { ...r, sig: scenarioSignature(sceneRef.current) } : r));
+        }
+        bump();
+      });
+      simClientRef.current = client;
     }
 
     const resize = () => {
@@ -394,6 +520,11 @@ export function SimulationCanvas({
           cars = framesToCars(fr.prev, fr.cur, alpha, world.vparams, world.graph.speedLimit);
           const fs = frameStats(fr.cur);
           st = { cars: fs.cars, avgSpeedKmh: fs.avgSpeedKmh, completedTrips: fs.completedTrips, avgTravelTime: 0, time: fs.time };
+          const ph = fr.sigPhase;
+          for (let j = 0; j < scene.signals.length; j++) {
+            const sc = scene.signals[j];
+            if (sc && ph[j] >= 0) setSignalPhase(world.control, sc, ph[j]);
+          }
         } else {
           cars = [];
           st = { cars: 0, avgSpeedKmh: 0, completedTrips: 0, avgTravelTime: 0, time: 0 };
@@ -428,12 +559,21 @@ export function SimulationCanvas({
       let selCar = -1;
       let carRouteLanes: readonly number[] = EMPTY_ROUTE;
       let carRouteI = -1;
-      if (cur.kind === 'car' && isSelectedCarLive(world, cur.id, cur.key)) {
-        selCar = cur.id;
-        const r = carRoute(world, cur.id);
-        if (r) {
-          carRouteLanes = r.lanes;
-          carRouteI = r.idx;
+      if (cur.kind === 'car') {
+        if (client) {
+          const route = client.selection()?.route;
+          if (route) {
+            selCar = cur.id;
+            carRouteLanes = route.lanes;
+            carRouteI = route.idx;
+          }
+        } else if (isSelectedCarLive(world, cur.id, cur.key)) {
+          selCar = cur.id;
+          const r = carRoute(world, cur.id);
+          if (r) {
+            carRouteLanes = r.lanes;
+            carRouteI = r.idx;
+          }
         }
       }
       const overlay: RenderOverlay = {
@@ -456,6 +596,12 @@ export function SimulationCanvas({
         carGL.draw(canvas.clientWidth, canvas.clientHeight, packed.data, packed.count);
       }
       const drawMs = performance.now() - drawT0;
+
+      const jump = st.time - flowRef.current.t;
+      if (jump < 0 || jump > 5) {
+        flowRef.current = { t: st.time, trips: st.completedTrips, val: 0 };
+        sampleRef.current = { t: st.time, trips: st.completedTrips };
+      }
 
       const f = flowRef.current;
       if (st.time - f.t >= 1.5) {
@@ -555,14 +701,7 @@ export function SimulationCanvas({
             clockRef={hudClock}
           />
 
-          {!worker && !coachDismissed && coachStep < 2 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
-
-          {worker && (
-            <div className="pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full border border-(--border) bg-black/70 px-2.5 py-1 font-mono text-[11px] text-(--text-2)">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-(--accent)" />
-              engine off-thread
-            </div>
-          )}
+          {!coachDismissed && coachStep < 2 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
 
           {debug && (
             <div
@@ -572,9 +711,8 @@ export function SimulationCanvas({
           )}
         </div>
 
-        {!worker && (
         <aside className="thin-scroll flex w-full shrink-0 flex-col gap-3 border-t border-(--border) p-3 lg:min-h-0 lg:w-92 lg:overflow-y-auto lg:border-l lg:border-t-0">
-          <Inspector scene={scene} sel={sel} stats={selStats} bump={bump} onClear={() => select(NONE_SEL)} sinkLabelOf={sinkLabelOf} pulseJunction={pulseJunction} />
+          <Inspector scene={scene} sel={sel} stats={selStats} actions={actions} onClear={() => select(NONE_SEL)} sinkLabelOf={sinkLabelOf} pulseJunction={pulseJunction} />
           <Telemetry flowSpark={flowSparkRef} speedSpark={speedSparkRef} freeKmh={freeKmh} />
 
           {/* The experimentation workflow, threaded as ordered steps. */}
@@ -608,7 +746,6 @@ export function SimulationCanvas({
             </WorkflowStep>
           </div>
         </aside>
-        )}
       </div>
 
       <Tooltip id="uf-tip" className="uf-tooltip" classNameArrow="uf-tooltip-arrow" place="top" />

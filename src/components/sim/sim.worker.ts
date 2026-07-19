@@ -1,14 +1,17 @@
 import { tick } from '@/engine';
-import { createScene, setDemandRate, type Scene } from '@/render/scene';
+import { createScene, applyConfig, captureConfig, type Scene, type ScenarioConfig } from '@/render/scene';
 import { packFrame } from '@/render/simFrame';
+import { carRoute } from '@/render/carTrace';
+import { computeSelStats, NONE_SEL, type Selection } from './types';
+import { applyCommand, packSignalPhase, type SimCommand, type SimEvent } from './simProtocol';
 
 const DT = 0.2;
 const MAX_STEPS = 5;
 const PUBLISH_MS = 16;
 
 const ctx = self as unknown as {
-  onmessage: ((e: MessageEvent) => void) | null;
-  postMessage: (m: unknown, transfer?: Transferable[]) => void;
+  onmessage: ((e: MessageEvent<SimCommand>) => void) | null;
+  postMessage: (m: SimEvent, transfer?: Transferable[]) => void;
 };
 
 let scene: Scene | null = null;
@@ -17,11 +20,26 @@ let speed = 1;
 let acc = 0;
 let last = 0;
 let running = false;
+let revision = 0;
+let epoch = 0;
+let selection: Selection = NONE_SEL;
 
-function publish(): void {
+function post(ev: SimEvent, transfer?: Transferable[]): void {
+  ctx.postMessage(ev, transfer);
+}
+
+function publishFrame(): void {
   if (!scene) return;
-  const f = packFrame(scene.world);
-  ctx.postMessage({ type: 'frame', frame: f, speed, playing }, [f.buffer]);
+  const frame = packFrame(scene.world);
+  post({ type: 'frame', frame, epoch, revision, sigPhase: packSignalPhase(scene) }, [frame.buffer]);
+}
+
+function publishSelection(): void {
+  if (!scene || selection.kind === 'none') return;
+  const stats = computeSelStats(scene, selection);
+  const route =
+    stats && selection.kind === 'car' ? carRoute(scene.world, selection.id) : null;
+  post({ type: 'selection', stats, route: route ? { lanes: route.lanes, idx: route.idx } : null });
 }
 
 function loop(): void {
@@ -37,32 +55,76 @@ function loop(): void {
       acc -= DT;
       n += 1;
     }
-    if (n > 0) publish();
+    if (n > 0) {
+      publishFrame();
+      publishSelection();
+    }
   }
   setTimeout(loop, PUBLISH_MS);
 }
 
+function build(grid: number, capacity: number, demand: number, config?: ScenarioConfig): void {
+  scene = createScene(demand, { grid, capacity });
+  if (config) applyConfig(scene, config, true);
+}
+
 ctx.onmessage = (e) => {
-  const m = e.data as { type: string; grid: number; capacity: number; demand: number; speed?: number; playing?: boolean };
+  const m = e.data;
+
   if (m.type === 'init' || m.type === 'reset') {
-    scene = createScene(m.demand, { grid: m.grid, capacity: m.capacity });
-    playing = m.playing ?? true;
-    speed = m.speed ?? 1;
+    build(m.grid, m.capacity, m.demand, m.config);
+    playing = m.type === 'init' ? (m.playing ?? true) : playing;
+    speed = m.type === 'init' ? (m.speed ?? 1) : speed;
     acc = 0;
     last = 0;
-    publish();
+    revision = 0;
+    epoch += 1;
+    if (m.type === 'reset') selection = NONE_SEL;
+    const config = captureConfig(scene!);
+    post(m.type === 'init' ? { type: 'ready', revision, epoch, config } : { type: 'resetComplete', epoch, config });
+    publishFrame();
     if (!running) {
       running = true;
       setTimeout(loop, PUBLISH_MS);
     }
-  } else if (!scene) {
     return;
-  } else if (m.type === 'setDemand') {
-    setDemandRate(scene, m.demand);
-  } else if (m.type === 'setPlaying') {
-    playing = m.playing ?? true;
-    last = 0;
-  } else if (m.type === 'setSpeed') {
-    speed = m.speed ?? 1;
   }
+
+  if (!scene) return;
+
+  if (m.type === 'setPlaying') {
+    playing = m.playing;
+    last = 0;
+    return;
+  }
+  if (m.type === 'setSpeed') {
+    speed = m.speed;
+    return;
+  }
+  if (m.type === 'fastForward') {
+    const n = Math.max(0, Math.min(m.ticks | 0, 6000));
+    for (let i = 0; i < n; i++) tick(scene.world);
+    acc = 0;
+    last = 0;
+    publishFrame();
+    publishSelection();
+    return;
+  }
+  if (m.type === 'setSelection') {
+    selection = m.sel;
+    publishSelection();
+    return;
+  }
+
+  // Mutations — validated + applied through the shared command handler, confirmed
+  // with a monotonic revision and the resulting authoritative config.
+  const res = applyCommand(scene, m);
+  if (!res.ok) {
+    post({ type: 'rejected', id: m.id, reason: res.reason ?? 'rejected' });
+    return;
+  }
+  revision += 1;
+  post({ type: 'applied', id: m.id, revision, epoch, config: captureConfig(scene) });
+  publishFrame();
+  publishSelection();
 };

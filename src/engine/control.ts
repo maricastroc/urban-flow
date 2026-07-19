@@ -99,6 +99,16 @@ export function enableSignal(control: ScenarioControl, sc: SignalController): vo
   applySignal(control, sc);
 }
 
+/**
+ * Force a signal to a given phase and refresh its `control.signal` entries. Used
+ * to mirror the worker's authoritative phase on the main thread for rendering —
+ * the mirror never advances signals itself (that would be a parallel sim).
+ */
+export function setSignalPhase(control: ScenarioControl, sc: SignalController, phase: number): void {
+  sc.phase = ((phase % sc.phases.length) + sc.phases.length) % sc.phases.length;
+  applySignal(control, sc);
+}
+
 export function updateSignals(world: World): void {
   const { control, dt } = world;
   for (const sc of control.signals) {

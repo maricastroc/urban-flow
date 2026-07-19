@@ -12,6 +12,22 @@ export type Selection =
 
 export const NONE_SEL: Selection = { kind: 'none' };
 
+/**
+ * Mutation dispatch for the Inspector, so it stays agnostic to *where* the sim
+ * lives. In non-worker mode these call `scene.ts` helpers on the live world; in
+ * worker mode they post commands and the confirmed state flows back into the
+ * display mirror. The Inspector passes the element's current state (closed/has/on)
+ * so a dispatcher can choose the explicit close/reopen · add/remove command.
+ */
+export interface InspectorActions {
+  toggleClose(lane: number, closed: boolean): void;
+  toggleIncident(lane: number, s: number, has: boolean): void;
+  toggleSignal(j: number, on: boolean): void;
+  flipPriority(j: number): void;
+  setSourceRate(lane: number, rate: number): void;
+  toggleDestination(lane: number, sink: number): void;
+}
+
 export type SelStats =
   | { kind: 'lane'; cars: number; speedKmh: number; freeKmh: number }
   | { kind: 'junction'; queued: number; greenAxis: string; secLeft: number }

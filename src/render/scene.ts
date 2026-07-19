@@ -142,6 +142,40 @@ export function toggleIncident(scene: Scene, lane: number, s: number): boolean {
   return !has;
 }
 
+/**
+ * Explicit, idempotent overlay mutations — the command protocol (§28) needs
+ * `closeRoad`/`reopenRoad`/`addSignals`/… to be order-independent and not depend
+ * on the receiver's current state (unlike the toggles the Inspector uses in
+ * non-worker mode). Both paths route through the same engine primitives.
+ */
+export function closeLaneScene(scene: Scene, lane: number): void {
+  if (scene.world.control.laneClosed[lane] === 1) return;
+  closeLane(scene.world.control, lane);
+  applyRoutes(scene);
+}
+
+export function reopenLaneScene(scene: Scene, lane: number): void {
+  if (scene.world.control.laneClosed[lane] === 0) return;
+  openLane(scene.world.control, lane);
+  applyRoutes(scene);
+}
+
+export function addIncidentScene(scene: Scene, lane: number, s: number): void {
+  engineSetIncident(scene.world.control, lane, s);
+}
+
+export function removeIncidentScene(scene: Scene, lane: number): void {
+  engineClearIncident(scene.world.control, lane);
+}
+
+export function addSignalsScene(scene: Scene, j: number): void {
+  if (scene.signals[j]?.enabled !== true) toggleSignal(scene, j);
+}
+
+export function removeSignalsScene(scene: Scene, j: number): void {
+  if (scene.signals[j]?.enabled === true) toggleSignal(scene, j);
+}
+
 export function flipPriority(scene: Scene, j: number): void {
   const [h, v] = scene.junctions[j].approaches;
   swapRanks(scene.world.control, h.conns, v.conns);
@@ -225,6 +259,36 @@ export function scenarioSignature(scene: Scene): string {
     .map((s) => `${s.rate}:${[...s.allowed].sort((a, b) => a - b).join('.')}`)
     .join('|');
   return `C${closed}I${inc}F${flips}S${sig}W${coord}D${demand}`;
+}
+
+/**
+ * Fully zero the scenario overlay, including tearing down every `SignalController`
+ * (not just disabling them, as `clearInterventions` does). This is the clean slate
+ * a display **mirror** needs before re-applying a confirmed `ScenarioConfig`, so
+ * repeated syncs never leak disabled controllers into `control.signals`.
+ */
+export function resetSceneControl(scene: Scene): void {
+  const c = scene.world.control;
+  const conns = scene.world.graph.connections;
+  c.laneClosed.fill(0);
+  c.incidentAt.fill(Infinity);
+  for (let i = 0; i < c.rank.length; i++) c.rank[i] = conns[i].rank;
+  c.signal.fill(0);
+  c.signals.length = 0;
+  (scene.signals as (SignalController | null)[]).fill(null);
+  (scene.coordinated as number[]).fill(0);
+}
+
+/**
+ * Sync a display mirror to a confirmed `ScenarioConfig` from the worker. Rebuilds
+ * the overlay from scratch (via the same `applyConfig` the A/B and optimizer use),
+ * so the mirror's `control`, `signals`, `coordinated` and per-source demand exactly
+ * match the worker's authoritative state. The mirror is never ticked — signal
+ * phases are mirrored separately per frame (`setSignalPhase`).
+ */
+export function applyControlSnapshot(scene: Scene, cfg: ScenarioConfig): void {
+  resetSceneControl(scene);
+  applyConfig(scene, cfg, true);
 }
 
 export function clearInterventions(scene: Scene): void {

@@ -674,8 +674,63 @@ renders it interpolated at 60 fps. `createSimClient` wraps the worker with a sma
 `setDemand / setPlaying / setSpeed / reset` — so demand and playback stay live; scenario-intent stays a
 main-thread concept. Falls back to null (→ main-thread sim) with no `Worker`.
 
-**Scope (honest).** This increment migrates the *live loop* and the basic transport controls only. The
-experimentation layer — mutations (close a road, signals, green wave), the A/B, the optimizer, the inspector,
-the car-route trace — is **not yet wired across the worker boundary**, so in `?worker` mode the right rail is
-hidden and a small "engine off-thread" badge stands in. Wiring those as a command protocol + on-demand queries
-(so the worker becomes the sole owner of the live World and `?worker` can become the default) is increment 2.
+**Scope of increment 1 (honest).** It migrated the *live loop* and the basic transport controls only; the
+experimentation layer was not yet wired across the worker boundary. Increment 2 (below) closes that gap.
+
+## 29. Interactive Web Worker — increment 2 (Etapa 20)
+
+The experimentation layer now works fully off-thread: in `?worker` mode the right rail stays visible and every
+intervention — close/reopen a road, incidents, signals, flip priority, green wave, per-entry demand +
+destinations, presets, reset, the A/B and the optimizer, plus car-route tracing — runs against the worker's
+authoritative `World`. The main thread owns only UI, input, selection, rendering and telemetry; the worker owns
+ticks, demand, interventions, signals, and all agent/network state.
+
+**A typed command/event protocol (`components/sim/simProtocol.ts`).** Main→worker `SimCommand`s (`init`,
+`reset`, `setPlaying/Speed/Selection`, and the mutating `SimMutation` subset: `setDemand`, `setSourceRate`,
+`toggleDestination`, `closeRoad`/`reopenRoad`, `addIncident`/`removeIncident`, `addSignals`/`removeSignals`,
+`flipPriority`, `greenWave`, `clearInterventions`). Worker→main `SimEvent`s (`ready`, `frame`, `applied`,
+`rejected`, `selection`, `resetComplete`). Every mutation carries a monotonic `id`; the worker replies
+`applied{revision, config}` or `rejected{reason}`. `applyCommand(scene, cmd)` is a **pure** validator+applier
+(bounds-checked against the live scene) routing through the *same* `scene.ts` helpers the non-worker Inspector
+calls directly — so there is no second engine, and it unit-tests in Node with no `Worker`.
+
+**No optimistic state; a confirmed display mirror.** The reused insight (§19/§26) is that a run is fully
+determined by its `ScenarioConfig`, which is structured-cloneable. So the confirmation payload **is** a
+`captureConfig(scene)` snapshot; the main thread keeps the `Scene` as a *display mirror* and
+`applyControlSnapshot(mirror, config)` (a `resetSceneControl` + `applyConfig`) rebuilds its overlay to exactly
+match the worker — driving the Inspector button states, the closed-barrier / incident / priority-tick render,
+`scenarioChanged`/`scenarioSignature` and the share-link. The mirror is **never ticked** and never mutated
+optimistically. A fresh `epoch` (reset / scenario swap) invalidates interpolation, so `prev` is dropped across
+the boundary; a monotonic `revision` orders confirmations.
+
+**Two lean channels beyond the transferable frame.** The per-tick `frame` stays the transferable
+`Float32Array` (§28) plus a tiny `sigPhase[]` (per-junction signal phase, `-1` where unsignalized) so the map's
+green/red heads read live — the mirror applies them via `setSignalPhase` without ever advancing a signal
+itself. Selection data (Inspector numerals + the car-route trace) is a low-rate `selection` message computed
+worker-side by the same `computeSelStats`/`carRoute`, so no second live world feeds the Inspector.
+
+**Dispatch indirection (`InspectorActions`).** The Inspector calls action props instead of `scene.ts` helpers
+directly; `SimulationCanvas` binds them to the live helpers (non-worker) or to `client.mutate(...)` (worker).
+The A/B and optimizer needed **no change** — they already build fresh same-seed worlds from a `ScenarioConfig`
+(`runExperiment(mirror)`, `runSweepPool(captureConfig(mirror), …)`), so once the mirror is synced they simply
+work; staging an optimizer pick posts the equivalent mutation and re-folds the board signature on confirmation.
+
+**Determinism, tested.** Because a worker driven by a command sequence is bit-identical to a direct scene driven
+by the same sequence at the same ticks (same fixed seed + grid), `simProtocol.test.ts` covers validation/
+rejection, per-command equivalence to the direct helper, ordered multi-intervention application, mirror-sync
+signature parity (no controller leaks on repeated syncs), `packSignalPhase`, preset parity across the boundary,
+and a determinism/parity hash (`packFrame`) over an interleaved command+tick script. The non-worker path is
+unchanged and its whole suite still passes.
+
+**Worker is now the default.** `page.tsx` runs the sim off-thread unless `?main` (or `?noworker`) opts into the
+main-thread loop — which is also the automatic fallback when `createSimClient` returns null (no `Worker`
+support). The payoff is visible: in a backgrounded/throttled tab the RAF-driven main loop barely advances (0
+cars, frozen clock — §15), while the worker's `setTimeout` loop keeps the network filling. **All behaviour
+branches on the client's *presence at call time*, not the `?worker` flag** — so the fallback stays fully
+interactive (`actions`, demand, selection, reset, presets all degrade to direct main-thread mutation when no
+client exists). The Coach is un-gated (it reads the synced mirror). **Fast-forward** (+60 s) is a `fastForward`
+command in worker mode (the worker advances its own world and republishes); the RAF loop's **time-gap guard**
+rebases the flow window + sparkline sampler across the jump (and across a late pre-reset frame) so the trace
+never shows a phantom spike. **Slider debounce:** `SimClient` throttles the high-frequency `setDemand` /
+`setSourceRate` commands (per-key leading+trailing, 70 ms) so a dragged slider can't flood the worker; the
+per-entry slider keeps a local drag value for a responsive thumb while the confirmed rate settles.

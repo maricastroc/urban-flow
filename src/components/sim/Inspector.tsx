@@ -1,15 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  toggleLaneClosed,
-  toggleIncident,
-  toggleDestination,
-  setSourceRate,
-  toggleSignal,
-  flipPriority,
-  type Scene,
-  type SourceCtl,
-} from '@/render/scene';
-import type { Selection, SelStats } from './types';
+import { type Scene, type SourceCtl } from '@/render/scene';
+import type { Selection, SelStats, InspectorActions } from './types';
 import { CARD, Metric, ActionButton, LegendGlyph } from './ui';
 import { IconClose } from './icons';
 
@@ -17,7 +8,7 @@ export function Inspector({
   scene,
   sel,
   stats,
-  bump,
+  actions,
   onClear,
   sinkLabelOf,
   pulseJunction,
@@ -25,7 +16,7 @@ export function Inspector({
   scene: Scene;
   sel: Selection;
   stats: SelStats | null;
-  bump: () => void;
+  actions: InspectorActions;
   onClear: () => void;
   sinkLabelOf: (sink: number) => string;
   pulseJunction: (j: number) => void;
@@ -38,11 +29,11 @@ export function Inspector({
       key={sel.kind === 'lane' ? `l${sel.lane}` : sel.kind === 'car' ? `c${sel.id}` : `j${sel.j}`}
     >
       {sel.kind === 'junction' ? (
-        <JunctionInspector scene={scene} j={sel.j} stats={stats} bump={bump} onClear={onClear} pulseJunction={pulseJunction} />
+        <JunctionInspector scene={scene} j={sel.j} stats={stats} actions={actions} onClear={onClear} pulseJunction={pulseJunction} />
       ) : sel.kind === 'car' ? (
         <CarInspector stats={stats} onClear={onClear} sinkLabelOf={sinkLabelOf} />
       ) : (
-        <LaneInspector scene={scene} lane={sel.lane} s={sel.s} stats={stats} bump={bump} onClear={onClear} sinkLabelOf={sinkLabelOf} />
+        <LaneInspector scene={scene} lane={sel.lane} s={sel.s} stats={stats} actions={actions} onClear={onClear} sinkLabelOf={sinkLabelOf} />
       )}
     </section>
   );
@@ -140,7 +131,7 @@ function LaneInspector({
   lane,
   s,
   stats,
-  bump,
+  actions,
   onClear,
   sinkLabelOf,
 }: {
@@ -148,7 +139,7 @@ function LaneInspector({
   lane: number;
   s: number;
   stats: SelStats | null;
-  bump: () => void;
+  actions: InspectorActions;
   onClear: () => void;
   sinkLabelOf: (sink: number) => string;
 }) {
@@ -176,44 +167,55 @@ function LaneInspector({
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <ActionButton active={closed} activeTone="bad" onClick={() => { toggleLaneClosed(scene, lane); bump(); }}>
+        <ActionButton active={closed} activeTone="bad" onClick={() => actions.toggleClose(lane, closed)}>
           {closed ? 'Reopen road' : 'Close road'}
         </ActionButton>
-        <ActionButton active={hasIncident} activeTone="warn" onClick={() => { toggleIncident(scene, lane, s); bump(); }}>
+        <ActionButton active={hasIncident} activeTone="warn" onClick={() => actions.toggleIncident(lane, s, hasIncident)}>
           {hasIncident ? 'Clear incident' : 'Add incident'}
         </ActionButton>
       </div>
 
-      {srcCtl && <EntryControls scene={scene} ctl={srcCtl} bump={bump} sinkLabelOf={sinkLabelOf} />}
+      {srcCtl && <EntryControls ctl={srcCtl} actions={actions} sinkLabelOf={sinkLabelOf} />}
     </>
   );
 }
 
 function EntryControls({
-  scene,
   ctl,
-  bump,
+  actions,
   sinkLabelOf,
 }: {
-  scene: Scene;
   ctl: SourceCtl;
-  bump: () => void;
+  actions: InspectorActions;
   sinkLabelOf: (sink: number) => string;
 }) {
+  // Local drag value keeps the slider responsive while the worker confirms the
+  // rate asynchronously (the command is throttled). Cleared on release, when the
+  // confirmed mirror rate takes over.
+  const [drag, setDrag] = useState<number | null>(null);
+  const units = drag ?? Math.round(ctl.rate * 10);
+  const rate = units / 10;
+
   return (
     <div className="mt-4 border-t border-(--border) pt-4">
       <div className="mb-2 flex items-center justify-between">
         <span className="eyebrow">Demand</span>
-        <span className="tnum text-[12px] text-(--text-2)">{ctl.rate.toFixed(1)}/s</span>
+        <span className="tnum text-[12px] text-(--text-2)">{rate.toFixed(1)}/s</span>
       </div>
       <input
         type="range"
         min={0}
         max={20}
-        value={Math.round(ctl.rate * 10)}
-        onChange={(e) => { setSourceRate(scene, ctl, Number(e.target.value) / 10); bump(); }}
+        value={units}
+        onChange={(e) => {
+          const u = Number(e.target.value);
+          setDrag(u);
+          actions.setSourceRate(ctl.lane, u / 10);
+        }}
+        onPointerUp={() => setDrag(null)}
+        onBlur={() => setDrag(null)}
         className="range-instr w-full"
-        style={{ '--fill': `${(ctl.rate / 2) * 100}%` } as React.CSSProperties}
+        style={{ '--fill': `${(rate / 2) * 100}%` } as React.CSSProperties}
       />
 
       <div className="mt-4 mb-2 flex items-center justify-between">
@@ -226,7 +228,7 @@ function EntryControls({
           return (
             <button
               key={sink}
-              onClick={() => { toggleDestination(scene, ctl, sink); bump(); }}
+              onClick={() => actions.toggleDestination(ctl.lane, sink)}
               className={`tnum rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all duration-150 ${
                 on
                   ? 'bg-(--accent-soft) text-(--accent-2) ring-1 ring-(--accent)/40'
@@ -249,14 +251,14 @@ function JunctionInspector({
   scene,
   j,
   stats,
-  bump,
+  actions,
   onClear,
   pulseJunction,
 }: {
   scene: Scene;
   j: number;
   stats: SelStats | null;
-  bump: () => void;
+  actions: InspectorActions;
   onClear: () => void;
   pulseJunction: (j: number) => void;
 }) {
@@ -277,14 +279,12 @@ function JunctionInspector({
 
   const stageSignal = () => {
     const willEnable = !signalized;
-    toggleSignal(scene, j);
-    bump();
+    actions.toggleSignal(j, signalized);
     pulseJunction(j);
     confirm(willEnable ? 'Signals staged' : 'Signals removed');
   };
   const stagePriority = () => {
-    flipPriority(scene, j);
-    bump();
+    actions.flipPriority(j);
     pulseJunction(j);
     confirm('Priority flipped');
   };
