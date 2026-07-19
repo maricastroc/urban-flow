@@ -8,7 +8,7 @@ import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventi
 import { framesToCars, frameStats } from '@/render/simFrame';
 import { createSimClient, type SimClient } from './sim/simClient';
 import { encodeScenario, decodeScenario, applyScenario, SCENARIO_PARAM } from '@/render/shareLink';
-import { type Preset, type NetworkPreset, NETWORKS, DEFAULT_NETWORK, LEARNING_NETWORK, capacityForGrid } from '@/render/presets';
+import { type Preset, type NetworkPreset, PRESETS, DEFAULT_NETWORK, SHOWCASE_NETWORK, capacityForGrid, centralJunction } from '@/render/presets';
 import { generateCandidates, type SweepRow, type Candidate } from '@/render/optimize';
 import { runSweepPool } from './sim/sweepPool';
 import { carRoute, isSelectedCarLive } from '@/render/carTrace';
@@ -49,6 +49,12 @@ const fmtClock = (sec: number) => {
 };
 const EMPTY_ROUTE: number[] = [];
 const SWEEP_TICKS = 300;
+/** The guided onboarding demo (§31) coordinates the central corridor — the wave
+ *  preset (demand tuned so the coordination clearly wins) — and measures it at a
+ *  full 5-minute A/B, which fully credits the wave (§25). */
+const WAVE_PRESET: Preset = PRESETS.find((p) => p.id === 'wave')!;
+const DEMO_TICKS = 1500;
+const relPct = (a: number, b: number) => (a ? ((b - a) / Math.abs(a)) * 100 : 0);
 
 /** Map an optimizer candidate to its equivalent worker command. */
 function mutationOfCandidate(c: Candidate): SimMutation | null {
@@ -154,7 +160,9 @@ export function SimulationCanvas({
   const [expResult, setExpResult] = useState<ExperimentResult | null>(null);
   const [expRunning, setExpRunning] = useState(false);
   const [expDuration, setExpDuration] = useState(600);
-  const [coachDismissed, setCoachDismissed] = useState(false);
+  const [coachDismissed, setCoachDismissed] = useState(!!scenarioParam);
+  const [demoStarted, setDemoStarted] = useState(false);
+  const [demoContrastPct, setDemoContrastPct] = useState(0);
   const [sweepRunning, setSweepRunning] = useState(false);
   const [sweepProg, setSweepProg] = useState({ done: 0, total: 0 });
   const [sweepResult, setSweepResult] = useState<{ baseline: Stats; rows: SweepRow[]; sig: string } | null>(null);
@@ -275,6 +283,7 @@ export function SimulationCanvas({
     setExpResult(null);
     setSweepResult(null);
     setStagedNeedsRun(false);
+    setCoachDismissed(true);
     clearShareUrl();
   }, [clearShareUrl, network]);
 
@@ -295,8 +304,39 @@ export function SimulationCanvas({
     setExpResult(null);
     setSweepResult(null);
     setStagedNeedsRun(false);
+    setCoachDismissed(true);
     clearShareUrl();
   }, [clearShareUrl]);
+
+  const applyGuidedDemo = useCallback(() => {
+    const dm = WAVE_PRESET.demandRate;
+    const opts = { grid: network.grid, capacity: network.capacity };
+    const staged = createScene(dm, opts);
+    WAVE_PRESET.stage?.(staged);
+    setSceneState(staged);
+    simClientRef.current?.reset({
+      grid: network.grid,
+      capacity: network.capacity,
+      demand: dm,
+      speed: speedRef.current,
+      playing: playingRef.current,
+      config: captureConfig(staged),
+    });
+    setDemand(Math.round(dm * 10));
+    setSel(NONE_SEL);
+    setSelStats(null);
+    setSweepResult(null);
+    setStagedNeedsRun(false);
+    setExpResult(null);
+    setExpDuration(DEMO_TICKS);
+    clearShareUrl();
+
+    const solo = createScene(dm, opts);
+    toggleSignal(solo, centralJunction(solo));
+    const r = runExperiment(solo, DEMO_TICKS);
+    setDemoContrastPct(relPct(r.baseline.avgSpeedKmh, r.intervention.avgSpeedKmh));
+    setDemoStarted(true);
+  }, [network, clearShareUrl]);
 
   const share = useCallback(() => {
     const url = `${window.location.origin}${window.location.pathname}?${SCENARIO_PARAM}=${encodeScenario(sceneRef.current)}`;
@@ -705,8 +745,13 @@ export function SimulationCanvas({
 
   const changed = scenarioChanged(scene);
   const sweepStale = !!sweepResult && scenarioSignature(scene) !== sweepResult.sig;
-  const coachStep = !changed ? 0 : !expResult ? 1 : 2;
-  const activeNetwork = NETWORKS.find((n) => n.grid === network.grid);
+  const coachStep = !demoStarted ? 0 : !expResult ? 1 : 2;
+  const waveResult = expResult
+    ? {
+        speedPct: relPct(expResult.baseline.avgSpeedKmh, expResult.intervention.avgSpeedKmh),
+        tripsPct: relPct(expResult.baseline.completedTrips, expResult.intervention.completedTrips),
+      }
+    : null;
 
   return (
     <div className="flex min-h-dvh flex-col bg-(--bg) text-(--text-1) lg:h-dvh">
@@ -743,14 +788,15 @@ export function SimulationCanvas({
             clockRef={hudClock}
           />
 
-          {!coachDismissed && coachStep < 2 && (
+          {!coachDismissed && (
             <Coach
               step={coachStep}
-              showcase={network.grid > LEARNING_NETWORK.grid}
-              networkLabel={activeNetwork?.label ?? `${network.grid}×${network.grid}`}
-              junctions={activeNetwork?.junctions ?? network.grid * network.grid}
-              learningLabel={LEARNING_NETWORK.label}
-              onSwitchToLearning={() => applyNetwork(LEARNING_NETWORK)}
+              running={expRunning}
+              waveResult={waveResult}
+              singleSignalSpeedPct={demoContrastPct}
+              onStart={applyGuidedDemo}
+              onRunAB={runExp}
+              onEnterMetro={() => applyNetwork(SHOWCASE_NETWORK)}
               onDismiss={() => setCoachDismissed(true)}
             />
           )}

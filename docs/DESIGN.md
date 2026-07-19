@@ -757,14 +757,40 @@ initial scale. The scenario presets stay grid-agnostic because their targets are
 builds `grid²` junctions at its capacity, the store never overflows under its own demand, and each scale is
 deterministic.
 
-**The Metro is the default; the City block is the sandbox (product positioning).** As the portfolio flagship,
-the app opens on the **Metro (12×12, 144 junctions)** so the first ten seconds read as a real off-thread city,
-not a toy — `buildInitialScene` defaults to `DEFAULT_NETWORK` (the metro preset). The **City block (5×5)** is
-tagged the learning **sandbox**: the network card badges each (`tag: 'showcase' | 'sandbox'`), and the Coach
-leads on a large grid with a "You're in the Metro" welcome + a one-click **Switch to City block** (dropping to
-`LEARNING_NETWORK`), then falls back to the normal *stage → A/B* stepper once you're on the calm grid — so the
-scale impresses without intimidating. `DEFAULT_GRID`/`DEFAULT_CAPACITY` in the engine stay 5×5 (the baseline for
-tests and the headless comparison grid); only the *app's* opening network changed.
+**District is the default; the Metro is the showcase (product positioning, §31 revision).** Two goals compete —
+impress with scale, and let a first-timer *see an intervention's effect clearly* (on a huge grid a local change
+reads as +1–2%). So the app opens on the **District (8×8, 64 junctions)** — unmistakably a city, but small
+enough that congestion, reroutes and A/B deltas are legible (`buildInitialScene` → `DEFAULT_NETWORK`, the
+district preset). The **Metro (12×12, 144 junctions)** stays the `showcase`, promoted out of the size selector
+into a **prominent CTA** ("Showcase · full-scale city · 144 junctions · off the main thread · →") so the max
+scale is one obvious click away, never hidden. The network card is two tiers: an interactive size selector
+(`INTERACTIVE_NETWORKS` — Toy / City block / District, District badged **Recommended**) and the Metro showcase
+banner. `DEFAULT_GRID`/`DEFAULT_CAPACITY` in the engine stay 5×5 (tests + the headless comparison baseline);
+only the *app's* opening network changed.
+
+## 31. Guided onboarding demo — show, don't tell (Etapa 20)
+
+The onboarding **runs a real experiment** instead of explaining the controls, so a first-timer learns a genuine
+traffic-engineering idea — **coordinating a corridor beats fixing one junction** — in under a minute. A 3-step
+Coach (`components/sim/Coach.tsx`):
+
+1. *Welcome* → **Show me**: `applyGuidedDemo` stages the **green wave** on the central corridor (the `wave`
+   preset — built at demand **1.2**, tuned so coordination clearly wins) and pins the A/B to a **5-minute**
+   window (`DEMO_TICKS = 1500`).
+2. *Staged* → **Run the A/B**: the controlled experiment (baseline vs. the coordinated corridor, same seed).
+3. *Result*: the real deltas, framed as a contrast — **green wave +~22% mean speed** vs. a pre-computed
+   **single signal −~10% speed** (a lone signal at that load *adds* stops), + a **See it at full scale →** that
+   drops into the Metro showcase.
+
+**Why these numbers are safe (the load-dependency trap).** A green wave only helps when there's a platoon to
+coordinate — at the calm 0.4 default it shows ~0% or negative, which would teach the opposite. Two things make
+the demo reliable: it runs at a **congesting demand (1.2)**, and — because `runExperiment` is **headless and
+synchronous** (~ms, not real-time) — it can afford the **5-minute** A/B that fully credits the wave (a 2-min run
+under-credits it, §25). The single-signal contrast is a second headless `runExperiment` computed instantly when
+the demo starts. All deltas are read from the actual (deterministic) runs, so the copy is always truthful.
+Measured on the District at 1.2 over 5 min: green wave **+6% trips / +22% speed**, lone signal **+2% / −10%**.
+A deep-link (`?s=`) skips the demo (`coachDismissed` inits from `scenarioParam`); switching network or applying
+a preset dismisses it.
 
 **Two correctness fixes this forced.** Making a non-5×5 grid the default surfaced that the headless
 experimentation layer was hard-coded to the default grid:

@@ -1,15 +1,10 @@
-import { IconClose, IconGrid } from './icons';
-
-const COACH_STEPS = [
-  { title: 'Stage an intervention', body: 'Click a road to close it, or a junction to add signals or flip priority.' },
-  { title: 'Run the controlled A/B', body: 'It re-runs baseline vs. your change from the same seed — so the delta is your change.' },
-];
+import { IconClose, IconGrid, IconFlask } from './icons';
 
 function Shell({ children, onDismiss }: { children: React.ReactNode; onDismiss: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center px-3">
       <div
-        className="anim-up pointer-events-auto flex max-w-110 items-start gap-3 rounded-xl border border-(--border-strong) bg-(--surface-1)/95 py-2.5 pl-3 pr-2.5 backdrop-blur-md"
+        className="anim-up pointer-events-auto flex max-w-118 items-start gap-3 rounded-xl border border-(--border-strong) bg-(--surface-1)/95 py-2.5 pl-3 pr-2.5 backdrop-blur-md"
         style={{ boxShadow: 'var(--shadow-float)' }}
       >
         {children}
@@ -25,67 +20,137 @@ function Shell({ children, onDismiss }: { children: React.ReactNode; onDismiss: 
   );
 }
 
+function Dots({ step }: { step: number }) {
+  return (
+    <div className="mt-2 flex items-center gap-1.5">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-1 rounded-full transition-all duration-300"
+          style={{ width: i === step ? 18 : 6, background: i <= step ? 'var(--accent)' : 'var(--border-strong)' }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export interface WaveResult {
+  readonly speedPct: number;
+  readonly tripsPct: number;
+}
+
+/**
+ * A guided demo (§31): rather than explain the controls, it *runs* a high-impact
+ * intervention — coordinating a corridor into a green wave — and measures it, so
+ * the user learns a real traffic-engineering idea (coordination beats a lone signal)
+ * in under a minute.
+ */
 export function Coach({
   step,
-  showcase,
-  networkLabel,
-  junctions,
-  learningLabel,
-  onSwitchToLearning,
+  running,
+  waveResult,
+  singleSignalSpeedPct,
+  onStart,
+  onRunAB,
+  onEnterMetro,
   onDismiss,
 }: {
   step: number;
-  /** On a large network (District / Metro), lead with the "you started big" welcome. */
-  showcase: boolean;
-  networkLabel: string;
-  junctions: number;
-  learningLabel: string;
-  onSwitchToLearning: () => void;
+  running: boolean;
+  waveResult: WaveResult | null;
+  singleSignalSpeedPct: number;
+  onStart: () => void;
+  onRunAB: () => void;
+  onEnterMetro: () => void;
   onDismiss: () => void;
 }) {
-  // On the showcase scale, first orient the user and offer the calm sandbox — so the
-  // large city reads as impressive, not intimidating.
-  if (showcase && step === 0) {
+  if (step === 0) {
     return (
       <Shell onDismiss={onDismiss}>
         <div className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-(--accent-soft)">
           <IconGrid />
         </div>
         <div className="min-w-0">
-          <div className="text-[13px] font-semibold leading-tight">You&apos;re on the {networkLabel} — the full city.</div>
+          <div className="text-[13px] font-semibold leading-tight">Watch one change move the whole city.</div>
           <div className="mt-0.5 text-[12px] leading-snug text-(--text-2)">
-            {junctions} junctions, simulated off the main thread. Click anything to inspect it — or drop to
-            the calm <strong className="text-(--text-1)">{learningLabel}</strong> to learn the tools first.
+            A 60-second demo: coordinate a corridor into a <strong className="text-(--text-1)">green wave</strong>
+            {' '}and measure it against the untouched city — no menus to hunt through.
           </div>
           <button
-            onClick={onSwitchToLearning}
+            onClick={onStart}
             className="mt-2 rounded-lg bg-(--accent) px-2.5 py-1 text-[12px] font-semibold text-white transition-all duration-150 hover:brightness-110"
           >
-            Switch to {learningLabel}
+            Show me
           </button>
+          <Dots step={0} />
         </div>
       </Shell>
     );
   }
 
-  const s = COACH_STEPS[Math.min(step, COACH_STEPS.length - 1)];
+  if (step === 1) {
+    return (
+      <Shell onDismiss={onDismiss}>
+        <div className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-(--accent-soft)">
+          <IconGrid />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold leading-tight">A green wave is staged on the central corridor.</div>
+          <div className="mt-0.5 text-[12px] leading-snug text-(--text-2)">
+            Every signal along it is timed to travel speed, so a platoon rides a wave of greens. Now measure
+            it — same seed, same demand, baseline vs. the coordinated corridor.
+          </div>
+          <button
+            onClick={onRunAB}
+            disabled={running}
+            className="mt-2 flex items-center gap-1.5 rounded-lg bg-(--accent) px-2.5 py-1 text-[12px] font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+          >
+            <IconFlask />
+            {running ? 'Measuring…' : 'Run the A/B'}
+          </button>
+          <Dots step={1} />
+        </div>
+      </Shell>
+    );
+  }
+
+  const wave = waveResult;
+  const single = Math.round(singleSignalSpeedPct);
   return (
     <Shell onDismiss={onDismiss}>
-      <div className="tnum mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-(--accent-soft) text-[11px] font-bold text-(--accent-2)">
-        {step + 1}
+      <div className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-(--good)/15">
+        <span className="text-[12px] font-bold text-(--good)">✓</span>
       </div>
       <div className="min-w-0">
-        <div className="text-[13px] font-semibold leading-tight">{s.title}</div>
-        <div className="mt-0.5 text-[12px] leading-snug text-(--text-2)">{s.body}</div>
-        <div className="mt-2 flex items-center gap-1.5">
-          {COACH_STEPS.map((_, i) => (
-            <span
-              key={i}
-              className="h-1 rounded-full transition-all duration-300"
-              style={{ width: i === step ? 18 : 6, background: i <= step ? 'var(--accent)' : 'var(--border-strong)' }}
-            />
-          ))}
+        <div className="text-[13px] font-semibold leading-tight">Coordination beats a single junction.</div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <span className="tnum rounded-md bg-(--good)/15 px-2 py-1 text-[11px] font-semibold text-(--good)">
+            Green wave {wave && wave.speedPct >= 0 ? '+' : ''}{wave ? Math.round(wave.speedPct) : '—'}% speed
+          </span>
+          <span className="tnum rounded-md bg-(--bad)/12 px-2 py-1 text-[11px] font-semibold text-(--bad)">
+            One signal {single >= 0 ? '+' : ''}{single}% speed
+          </span>
         </div>
+        <div className="mt-1.5 text-[12px] leading-snug text-(--text-2)">
+          Same seed, same demand — the only difference is coordination. A lone signal adds stops where there
+          was flow; timing the whole corridor lets the platoon glide through
+          {wave ? ` (${wave.tripsPct >= 0 ? '+' : ''}${Math.round(wave.tripsPct)}% throughput too)` : ''}.
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            onClick={onEnterMetro}
+            className="rounded-lg bg-(--accent) px-2.5 py-1 text-[12px] font-semibold text-white transition-all duration-150 hover:brightness-110"
+          >
+            See it at full scale →
+          </button>
+          <button
+            onClick={onDismiss}
+            className="text-[12px] font-medium text-(--text-3) transition-colors hover:text-(--text-1)"
+          >
+            Explore on my own
+          </button>
+        </div>
+        <Dots step={2} />
       </div>
     </Shell>
   );
