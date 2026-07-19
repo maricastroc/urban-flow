@@ -4,7 +4,9 @@ import 'react-tooltip/dist/react-tooltip.css';
 import { Tooltip } from 'react-tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tick } from '@/engine';
-import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, captureConfig, scenarioSignature, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
+import { createScene, setDemandRate, sampleStats, runExperiment, clearInterventions, captureConfig, scenarioSignature, DEFAULT_GRID, DEFAULT_CAPACITY, type Scene, type ExperimentResult, type Stats } from '@/render/scene';
+import { framesToCars, frameStats } from '@/render/simFrame';
+import { createSimClient, type SimClient } from './sim/simClient';
 import { encodeScenario, decodeScenario, applyScenario, SCENARIO_PARAM } from '@/render/shareLink';
 import { type Preset } from '@/render/presets';
 import { generateCandidates, type SweepRow, type Candidate } from '@/render/optimize';
@@ -71,15 +73,18 @@ export function SimulationCanvas({
   debug = false,
   grid = null,
   cap = null,
+  worker = false,
 }: {
   scenarioParam?: string | null;
   debug?: boolean;
   grid?: number | null;
   cap?: number | null;
+  worker?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
   const sweepingRef = useRef(false);
+  const simClientRef = useRef<SimClient | null>(null);
 
 
   const [scene, setSceneState] = useState<Scene>(() => buildInitialScene(scenarioParam, grid, cap));
@@ -136,8 +141,14 @@ export function SimulationCanvas({
   const perfRef = useRef({ tick: 0, draw: 0, fps: 0, lastPaint: 0 });
   const perfBoxRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => void (playingRef.current = playing), [playing]);
-  useEffect(() => void (speedRef.current = speed), [speed]);
+  useEffect(() => {
+    playingRef.current = playing;
+    simClientRef.current?.setPlaying(playing);
+  }, [playing]);
+  useEffect(() => {
+    speedRef.current = speed;
+    simClientRef.current?.setSpeed(speed);
+  }, [speed]);
   useEffect(() => void (selRef.current = sel), [sel]);
   useEffect(() => {
     if (demandSkip.current) {
@@ -145,6 +156,7 @@ export function SimulationCanvas({
       return;
     }
     setDemandRate(sceneRef.current, unitsToRate(demand));
+    simClientRef.current?.setDemand(unitsToRate(demand));
   }, [demand]);
 
   useEffect(() => {
@@ -329,6 +341,16 @@ export function SimulationCanvas({
     const carGL = gl ? createCarRenderer(gl) : null;
     let packBuf: Float32Array | undefined;
 
+    if (worker) {
+      simClientRef.current = createSimClient({
+        grid: grid ?? DEFAULT_GRID,
+        capacity: cap ?? DEFAULT_CAPACITY,
+        demand: unitsToRate(DEFAULT_DEMAND),
+        speed: speedRef.current,
+        playing: playingRef.current,
+      });
+    }
+
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(canvas.clientWidth * dpr);
@@ -359,28 +381,46 @@ export function SimulationCanvas({
 
       if (playingRef.current) accRef.current += dtReal * speedRef.current;
 
-      const tickT0 = performance.now();
       let steps = 0;
-      while (accRef.current >= SIM_DT && steps < MAX_STEPS) {
-        prevS.set(agents.s);
-        prevActive.set(agents.active);
-        prevLane.set(agents.lane);
-        tick(world);
-        accRef.current -= SIM_DT;
-        steps += 1;
-      }
-      const tickMs = performance.now() - tickT0;
-      const alpha = Math.min(accRef.current / SIM_DT, 1);
-
-      const v0 = world.graph.speedLimit[0] * world.vparams[0].v0Factor;
-      const cars: RenderCar[] = [];
-      for (let id = 0; id < agents.capacity; id++) {
-        if (!agents.active[id]) continue;
-        const lane = agents.lane[id];
-        const cur = agents.s[id];
-        const interp = prevActive[id] === 1 && prevLane[id] === lane;
-        const s = interp ? prevS[id] + (cur - prevS[id]) * alpha : cur;
-        cars.push({ id, key: agents.enterTime[id], lane, s, length: world.vparams[agents.type[id]].length, speedFrac: agents.v[id] / v0 });
+      let tickMs = 0;
+      let cars: RenderCar[];
+      let st: Stats;
+      const client = simClientRef.current;
+      if (client) {
+        const fr = client.frames();
+        if (fr.cur) {
+          const expected = (SIM_DT * 1000) / Math.max(fr.speed, 0.001);
+          const alpha = Math.min((ts - fr.arrival) / expected, 1);
+          cars = framesToCars(fr.prev, fr.cur, alpha, world.vparams, world.graph.speedLimit);
+          const fs = frameStats(fr.cur);
+          st = { cars: fs.cars, avgSpeedKmh: fs.avgSpeedKmh, completedTrips: fs.completedTrips, avgTravelTime: 0, time: fs.time };
+        } else {
+          cars = [];
+          st = { cars: 0, avgSpeedKmh: 0, completedTrips: 0, avgTravelTime: 0, time: 0 };
+        }
+      } else {
+        const tickT0 = performance.now();
+        while (accRef.current >= SIM_DT && steps < MAX_STEPS) {
+          prevS.set(agents.s);
+          prevActive.set(agents.active);
+          prevLane.set(agents.lane);
+          tick(world);
+          accRef.current -= SIM_DT;
+          steps += 1;
+        }
+        tickMs = performance.now() - tickT0;
+        const alpha = Math.min(accRef.current / SIM_DT, 1);
+        const v0 = world.graph.speedLimit[0] * world.vparams[0].v0Factor;
+        cars = [];
+        for (let id = 0; id < agents.capacity; id++) {
+          if (!agents.active[id]) continue;
+          const lane = agents.lane[id];
+          const curS = agents.s[id];
+          const interp = prevActive[id] === 1 && prevLane[id] === lane;
+          const s = interp ? prevS[id] + (curS - prevS[id]) * alpha : curS;
+          cars.push({ id, key: agents.enterTime[id], lane, s, length: world.vparams[agents.type[id]].length, speedFrac: agents.v[id] / v0 });
+        }
+        st = sampleStats(world);
       }
       carsRef.current = cars;
 
@@ -417,12 +457,11 @@ export function SimulationCanvas({
       }
       const drawMs = performance.now() - drawT0;
 
-      const st = sampleStats(world);
       const f = flowRef.current;
-      if (world.time - f.t >= 1.5) {
-        f.val = ((world.metrics.completedTrips - f.trips) / (world.time - f.t)) * 60;
-        f.t = world.time;
-        f.trips = world.metrics.completedTrips;
+      if (st.time - f.t >= 1.5) {
+        f.val = ((st.completedTrips - f.trips) / (st.time - f.t)) * 60;
+        f.t = st.time;
+        f.trips = st.completedTrips;
       }
       const d = dispRef.current;
       d.cars += (st.cars - d.cars) * 0.14;
@@ -432,15 +471,15 @@ export function SimulationCanvas({
       if (hudFlow.current) hudFlow.current.textContent = d.flow.toFixed(1);
       if (hudSpeed.current) hudSpeed.current.textContent = String(Math.round(d.speed));
       if (hudTrips.current) hudTrips.current.textContent = String(st.completedTrips);
-      if (hudClock.current) hudClock.current.textContent = fmtClock(world.time);
+      if (hudClock.current) hudClock.current.textContent = fmtClock(st.time);
 
       const smp = sampleRef.current;
-      const dtS = world.time - smp.t;
+      const dtS = st.time - smp.t;
       if (dtS >= SAMPLE_DT) {
-        flowSparkRef.current?.push(((world.metrics.completedTrips - smp.trips) / dtS) * 60);
+        flowSparkRef.current?.push(((st.completedTrips - smp.trips) / dtS) * 60);
         speedSparkRef.current?.push(st.avgSpeedKmh);
-        smp.t = world.time;
-        smp.trips = world.metrics.completedTrips;
+        smp.t = st.time;
+        smp.trips = st.completedTrips;
       }
 
       const box = perfBoxRef.current;
@@ -463,8 +502,10 @@ export function SimulationCanvas({
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       carGL?.dispose();
+      simClientRef.current?.dispose();
+      simClientRef.current = null;
     };
-  }, []);
+  }, [worker, grid, cap]);
 
   const sinkLabels = useMemo(() => compassLabels(scene.sinks.map((l) => scene.geometry.b[l])), [scene]);
   const sinkLabelOf = useCallback(
@@ -514,7 +555,14 @@ export function SimulationCanvas({
             clockRef={hudClock}
           />
 
-          {!coachDismissed && coachStep < 2 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
+          {!worker && !coachDismissed && coachStep < 2 && <Coach step={coachStep} onDismiss={() => setCoachDismissed(true)} />}
+
+          {worker && (
+            <div className="pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full border border-(--border) bg-black/70 px-2.5 py-1 font-mono text-[11px] text-(--text-2)">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-(--accent)" />
+              engine off-thread
+            </div>
+          )}
 
           {debug && (
             <div
@@ -524,6 +572,7 @@ export function SimulationCanvas({
           )}
         </div>
 
+        {!worker && (
         <aside className="thin-scroll flex w-full shrink-0 flex-col gap-3 border-t border-(--border) p-3 lg:min-h-0 lg:w-92 lg:overflow-y-auto lg:border-l lg:border-t-0">
           <Inspector scene={scene} sel={sel} stats={selStats} bump={bump} onClear={() => select(NONE_SEL)} sinkLabelOf={sinkLabelOf} pulseJunction={pulseJunction} />
           <Telemetry flowSpark={flowSparkRef} speedSpark={speedSparkRef} freeKmh={freeKmh} />
@@ -559,6 +608,7 @@ export function SimulationCanvas({
             </WorkflowStep>
           </div>
         </aside>
+        )}
       </div>
 
       <Tooltip id="uf-tip" className="uf-tooltip" classNameArrow="uf-tooltip-arrow" place="top" />

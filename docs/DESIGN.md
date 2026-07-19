@@ -649,3 +649,33 @@ worth recording: a shared `uPad` uniform declared `highp` in the vertex stage bu
 stage is a **link error** in GLSL ES 3.00 — `createCarRenderer` returned null and the layer silently fell
 back to Canvas 2D. The fallback hid it; only the live draw-cost (still ~7ms, not ~1ms) gave it away. Declare
 shared uniforms with matching precision.
+
+## 28. Live sim in a Web Worker — increment 1 (Etapa 20)
+
+The architecture leg of the scale leap. Phase 0 measured that the sim is ~1500× under its realtime budget, so
+this is **architectural, not a perf fix**: the payoff is that the live simulation runs entirely off the main
+thread (the `?debug` overlay reads **`tick 0.0ms`** on the main thread), the UI can never be blocked by it, and
+— unlike a `requestAnimationFrame` loop — a worker's timers keep the sim running in a **backgrounded tab**.
+
+**Flag-gated, so the shipped app is untouched.** Everything is behind a `?worker` search-param (SSR-passed like
+`?debug`). Without it, the original main-thread loop runs verbatim; the RAF loop simply branches on
+`simClientRef`. This is the increment that de-risks the migration — the default path is verified unchanged.
+
+**Transferable double-buffer (`render/simFrame.ts`, pure).** The render-facing agent state is packed into a
+`Float32Array` — a 3-float header (`time, completedTrips, activeCount`) then `active,lane,s,v,type,enterTime`
+per slot — and posted as a **transferable** (ownership handed over, no copy, no `SharedArrayBuffer` and so no
+COOP/COEP headers). The main thread keeps the last two frames and `framesToCars(prev, cur, alpha, …)`
+interpolates by slot, reusing the existing RenderCar path (so WebGL, hit-testing, HUD all work unchanged).
+`packFrame` / `frameStats` / `framesToCars` are DOM-free and unit-tested in Node.
+
+**The worker (`components/sim/sim.worker.ts`) + client (`simClient.ts`).** The worker builds the same
+seed+grid scene, runs its own fixed-step accumulator loop, and publishes a frame each tick (~5 Hz); the main
+renders it interpolated at 60 fps. `createSimClient` wraps the worker with a small command protocol —
+`setDemand / setPlaying / setSpeed / reset` — so demand and playback stay live; scenario-intent stays a
+main-thread concept. Falls back to null (→ main-thread sim) with no `Worker`.
+
+**Scope (honest).** This increment migrates the *live loop* and the basic transport controls only. The
+experimentation layer — mutations (close a road, signals, green wave), the A/B, the optimizer, the inspector,
+the car-route trace — is **not yet wired across the worker boundary**, so in `?worker` mode the right rail is
+hidden and a small "engine off-thread" badge stands in. Wiring those as a command protocol + on-demand queries
+(so the worker becomes the sole owner of the live World and `?worker` can become the default) is increment 2.

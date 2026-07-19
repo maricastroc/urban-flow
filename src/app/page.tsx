@@ -11,12 +11,13 @@ export default async function Home({
   const scenarioParam = typeof raw === 'string' ? raw : null;
 
   const debug = sp.debug !== undefined || sp.perf !== undefined;
+  const worker = sp.worker !== undefined;
   const num = (v: string | string[] | undefined): number | null =>
     typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : null;
 
   return (
     <main className="min-h-dvh lg:h-dvh">
-      <SimulationCanvas scenarioParam={scenarioParam} debug={debug} grid={num(sp.grid)} cap={num(sp.cap)} />
+      <SimulationCanvas scenarioParam={scenarioParam} debug={debug} worker={worker} grid={num(sp.grid)} cap={num(sp.cap)} />
     </main>
   );
 }
