@@ -613,3 +613,32 @@ behaviour, non-blocking, survives a throttled tab). A worker erroring mid-sweep 
 the remaining jobs on the main thread, and skip workers next time. A `settled` guard makes the two completion
 paths mutually exclusive. The pool lives in the shell (`components/`), never in `engine`/`render`, which stay
 DOM-free. Verified live under Turbopack: 8 workers spun up and returned a correct leaderboard.
+
+## 27. WebGL instanced car layer (Etapa 19)
+
+The render half of the scale leap. Phase 0 measured the first wall: at ~1500 congested cars the Canvas 2D
+draw hit ~7ms/frame, and it was the **per-car** `save/restore/gradient/shadow` that dominated (~6ms of it),
+not the road chrome. So the cars — the O(agents) layer that has to reach the thousands — move to **WebGL2
+instancing**, one draw call for the whole fleet; everything else stays Canvas 2D.
+
+**Hybrid, two stacked canvases.** The bottom canvas keeps the entire tuned thermal render (backdrop, roads +
+congestion, flow field, junctions, incidents, route trace) via `drawScene`, now with a `drawCars` flag. The
+top canvas is WebGL, `pointer-events-none` so clicks fall through to the 2D canvas's hit-testing. Layer order
+shifts slightly — cars now sit *over* junctions/incidents rather than under — which actually matches §18's
+"cars are the top luminance tier"; a 3-canvas split (chrome-under / cars / chrome-over) could restore the
+exact order if wanted.
+
+**`render/glRenderer.ts` (framework-free).** Takes an injected `WebGL2RenderingContext` — the same pattern as
+`renderer.ts` taking `CanvasRenderingContext2D`, so `render/` stays DOM-import-free. `createCarRenderer(gl)`
+compiles one instanced program (a unit quad + a per-car instance buffer of `[x, y, cos, sin, halfLen,
+halfWid, r, g, b, a]`); the fragment shader is a rounded-capsule SDF with the same thermal colour, a
+nose-brightening toward the front and a thin dark rim (echoing `drawCar`). `packCarInstances(geom, w, h,
+cars, dimOf)` writes the interpolated screen-space instances into a reused `Float32Array` — pure, so it
+unit-tests in Node without a GL context. The spotlight (`focusDimmer`, extracted from `drawScene`) feeds each
+car's alpha, so focus mode still dims the fleet. Compile/link failure or no WebGL2 → `createCarRenderer`
+returns null → the loop falls back to Canvas 2D cars (`drawCars: true`), the unchanged pre-Etapa path.
+
+**Result (verified live).** At ~1500 cars the whole CPU render dropped from ~7ms to **~0.7ms** — the cars
+became effectively free (submitted in one `drawArraysInstanced`), leaving only the O(lanes) chrome. Rendering
+is a pure read of state, so nothing here touches determinism or the engine tests. Deferred polish: the soft
+drop-shadow and micro-trail from `drawCar` aren't in the shader yet (a thin rim stands in).

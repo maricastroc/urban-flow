@@ -57,6 +57,21 @@ const STAGE_PULSE_MS = 900;
 const ACCENT: RGB = [96, 165, 250];
 const STOP_EPS = 0.14;
 
+export function focusDimmer(scene: Scene, overlay: RenderOverlay): (lane: number) => number {
+  const graph = scene.world.graph;
+  const hasSel = overlay.selectedLane >= 0 || overlay.selectedJunction >= 0 || overlay.carRoute.length > 0;
+  const focus = new Set<number>();
+  if (overlay.selectedLane >= 0) focus.add(overlay.selectedLane);
+  if (overlay.selectedJunction >= 0) {
+    for (const ap of scene.junctions[overlay.selectedJunction].approaches) {
+      focus.add(ap.fromLane);
+      for (const cId of ap.conns) focus.add(graph.connections[cId].toLane);
+    }
+  }
+  for (const lane of overlay.carRoute) focus.add(lane);
+  return (lane) => (hasSel && !focus.has(lane) ? 0.28 : 1);
+}
+
 export function drawScene(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -64,9 +79,10 @@ export function drawScene(
   scene: Scene,
   cars: readonly RenderCar[],
   overlay: RenderOverlay = NO_OVERLAY,
+  opts: { drawCars?: boolean } = {},
 ): void {
+  const drawCars = opts.drawCars !== false;
   const geom = scene.geometry;
-  const graph = scene.world.graph;
   const control = scene.world.control;
   const n = geom.a.length;
   const cam = fitCamera(geom, width, height);
@@ -82,17 +98,7 @@ export function drawScene(
   }
   const meanSF = (lane: number) => (load[lane] ? sumSF[lane] / load[lane] : 1);
 
-  const hasSel = overlay.selectedLane >= 0 || overlay.selectedJunction >= 0 || overlay.carRoute.length > 0;
-  const focus = new Set<number>();
-  if (overlay.selectedLane >= 0) focus.add(overlay.selectedLane);
-  if (overlay.selectedJunction >= 0) {
-    for (const ap of scene.junctions[overlay.selectedJunction].approaches) {
-      focus.add(ap.fromLane);
-      for (const cId of ap.conns) focus.add(graph.connections[cId].toLane);
-    }
-  }
-  for (const lane of overlay.carRoute) focus.add(lane);
-  const dimOf = (lane: number) => (hasSel && !focus.has(lane) ? 0.28 : 1);
+  const dimOf = focusDimmer(scene, overlay);
 
   const A: Pt[] = new Array(n);
   const B: Pt[] = new Array(n);
@@ -158,7 +164,7 @@ export function drawScene(
   for (const c of cars) {
     const p = placementAt(geom, c.lane, c.s);
     const sp = project(cam, p.x, p.y);
-    drawCar(ctx, sp, p.heading, Math.max(8, c.length * cam.scale * 1.05), Math.max(4.6, 2.5 * cam.scale), c.speedFrac, dimOf(c.lane));
+    if (drawCars) drawCar(ctx, sp, p.heading, Math.max(8, c.length * cam.scale * 1.05), Math.max(4.6, 2.5 * cam.scale), c.speedFrac, dimOf(c.lane));
     if (c.id === overlay.selectedCar) {
       const t = (now / 1400) % 1;
       ring(ctx, sp.x, sp.y, 6 + t * 7, rgba(ACCENT, 0.5 * (1 - t)), 1.6);

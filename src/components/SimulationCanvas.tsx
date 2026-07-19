@@ -10,7 +10,8 @@ import { type Preset } from '@/render/presets';
 import { generateCandidates, type SweepRow, type Candidate } from '@/render/optimize';
 import { runSweepPool } from './sim/sweepPool';
 import { carRoute, isSelectedCarLive } from '@/render/carTrace';
-import { drawScene, type RenderCar, type RenderOverlay } from '@/render/renderer';
+import { drawScene, focusDimmer, type RenderCar, type RenderOverlay } from '@/render/renderer';
+import { createCarRenderer, packCarInstances } from '@/render/glRenderer';
 import {
   computeSelStats,
   compassLabels,
@@ -77,6 +78,7 @@ export function SimulationCanvas({
   cap?: number | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const glCanvasRef = useRef<HTMLCanvasElement>(null);
 
 
   const [scene, setSceneState] = useState<Scene>(() => buildInitialScene(scenarioParam, grid, cap));
@@ -318,11 +320,20 @@ export function SimulationCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const glCanvas = glCanvasRef.current;
+    const gl = glCanvas?.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false }) ?? null;
+    const carGL = gl ? createCarRenderer(gl) : null;
+    let packBuf: Float32Array | undefined;
+
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(canvas.clientWidth * dpr);
       canvas.height = Math.round(canvas.clientHeight * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (glCanvas) {
+        glCanvas.width = Math.round(glCanvas.clientWidth * dpr);
+        glCanvas.height = Math.round(glCanvas.clientHeight * dpr);
+      }
     };
     resize();
     window.addEventListener('resize', resize);
@@ -394,7 +405,12 @@ export function SimulationCanvas({
         stagedAt: stagedRef.current.at,
       };
       const drawT0 = performance.now();
-      drawScene(ctx, canvas.clientWidth, canvas.clientHeight, scene, cars, overlay);
+      drawScene(ctx, canvas.clientWidth, canvas.clientHeight, scene, cars, overlay, { drawCars: !carGL });
+      if (carGL) {
+        const packed = packCarInstances(scene.geometry, canvas.clientWidth, canvas.clientHeight, cars, focusDimmer(scene, overlay), packBuf);
+        packBuf = packed.data;
+        carGL.draw(canvas.clientWidth, canvas.clientHeight, packed.data, packed.count);
+      }
       const drawMs = performance.now() - drawT0;
 
       const st = sampleStats(world);
@@ -442,6 +458,7 @@ export function SimulationCanvas({
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
+      carGL?.dispose();
     };
   }, []);
 
@@ -477,6 +494,7 @@ export function SimulationCanvas({
             onMouseLeave={onCanvasLeave}
             className="absolute inset-0 h-full w-full cursor-pointer"
           />
+          <canvas ref={glCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
 
           <ControlDock
             playing={playing}
