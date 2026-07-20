@@ -40,8 +40,15 @@ body {
   background: var(--bg);
   color: var(--text-1);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-font-smoothing: antialiased;
+}
+
+@media (min-width: 1024px) {
+  body {
+    overflow: hidden;
+  }
 }
 
 button:not(:disabled),
