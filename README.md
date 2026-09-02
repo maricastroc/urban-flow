@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  🔗 <strong>Live demo:</strong> <a href="urban-flow.marianacastro.dev/">urban-flow.marianacastro.dev</a>
+  🔗 <strong>Live demo:</strong> <a href="https://urban-flow.marianacastro.dev">urban-flow.marianacastro.dev</a>
 </p>
 
 <p align="center">
