@@ -35,7 +35,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/desktop.png" alt="AccessCheck" width="800" />
+  <img src="docs/desktop.png" alt="UrbanFlow" width="800" />
 </p>
 
 <br/>
